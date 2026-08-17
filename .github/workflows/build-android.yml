@@ -1,0 +1,70 @@
+name: Build FloatMouse APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '.buildsource/**'
+      - '.github/workflows/build-android.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Rehydrate FloatMouse source
+        shell: bash
+        run: |
+          cat .buildsource/source.part* > floatmouse-source.tgz.b64
+          base64 -d floatmouse-source.tgz.b64 > floatmouse-source.tgz
+          tar -xzf floatmouse-source.tgz
+          test -f android/app/src/main/AndroidManifest.xml
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.11.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Install Android SDK 35
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+
+      - name: Run core tests
+        shell: bash
+        run: |
+          python3 tests/test_receiver_core.py
+          mkdir -p /tmp/floatmouse-test
+          javac -d /tmp/floatmouse-test android/app/src/main/java/com/floatmouse/app/MotionMath.java android/app/src/main/java/com/floatmouse/app/OpticalFlowMath.java android/app/src/main/java/com/floatmouse/app/Protocol.java tests/TestCore.java
+          java -cp /tmp/floatmouse-test TestCore
+
+      - name: Build debug APK
+        shell: bash
+        run: gradle -p android --no-daemon assembleDebug
+
+      - name: Verify APK
+        shell: bash
+        run: |
+          test -s android/app/build/outputs/apk/debug/app-debug.apk
+          sha256sum android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload FloatMouse APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: FloatMouse-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
