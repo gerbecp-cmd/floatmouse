@@ -10,7 +10,7 @@ on:
       - '.github/workflows/build-android.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-apk:
@@ -72,19 +72,48 @@ jobs:
           java -cp /tmp/floatmouse-test TestCore
 
       - name: Build debug APK
+        id: build
         shell: bash
         run: gradle -p android --no-daemon assembleDebug
 
       - name: Verify APK
+        id: verify
         shell: bash
         run: |
           test -s android/app/build/outputs/apk/debug/app-debug.apk
           sha256sum android/app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload FloatMouse APK
+        id: upload
         uses: actions/upload-artifact@v4
         with:
           name: FloatMouse-v1.1-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish latest build to repository
+        if: success()
+        shell: bash
+        run: |
+          mkdir -p builds
+          cp android/app/build/outputs/apk/debug/app-debug.apk builds/FloatMouse-v1.1-debug.apk
+          sha256sum builds/FloatMouse-v1.1-debug.apk > builds/SHA256.txt
+          printf 'status=success\nrun_id=%s\ncommit=%s\nversion=1.1.0\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/LATEST.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add builds/FloatMouse-v1.1-debug.apk builds/SHA256.txt builds/LATEST.txt
+          git commit -m 'Publish FloatMouse v1.1 APK' || true
+          git push
+
+      - name: Publish failure status
+        if: failure()
+        shell: bash
+        run: |
+          mkdir -p builds
+          printf 'status=failure\nrun_id=%s\ncommit=%s\nversion=1.1.0\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/LATEST.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add builds/LATEST.txt
+          git commit -m 'Record failed FloatMouse v1.1 build' || true
+          git push || true
