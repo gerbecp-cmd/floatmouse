@@ -1,0 +1,114 @@
+ -> {
+            if (MouseService.MODE_DESK.equals(mode)) requestDeskMode();
+            else setMode(mode);
+        });
+        modeRow.addView(b, weighted(1));
+        if (modeRow.getChildCount() < 5) space(modeRow, 6);
+    }
+
+    private void setMode(String mode) {
+        currentMode = mode;
+        Intent i = new Intent(this, MouseService.class);
+        i.setAction(MouseService.ACTION_MODE);
+        i.putExtra(MouseService.EXTRA_MODE, mode);
+        startForegroundServiceCompat(i);
+        pad.setVisibility(MouseService.MODE_TOUCHPAD.equals(mode) ? View.VISIBLE : View.GONE);
+        if (MouseService.MODE_AIR.equals(mode)) status.setText("Air Mouse active • screen can be turned off");
+        else if (MouseService.MODE_DESK.equals(mode)) status.setText("Desk Mouse active • calibrate this surface");
+        else status.setText("Touchpad mode active");
+    }
+
+    private void connect() {
+        String h = host.getText().toString().trim();
+        String p = pin.getText().toString().trim();
+        if (h.isEmpty() || p.length() < 4) { status.setText("Enter the PC IP and pairing PIN shown by the receiver"); return; }
+        int pt = 38777;
+        try { pt = Integer.parseInt(port.getText().toString().trim()); } catch (Exception ignored) {}
+        float sens = (sensitivity.getProgress() + 20) / 100f;
+        SharedPreferences.Editor e = getSharedPreferences("floatmouse", MODE_PRIVATE).edit();
+        e.putString("host", h).putString("pin", p).putInt("port", pt).putInt("sensProgress", sensitivity.getProgress()).putBoolean("auto", autoSwitch.isChecked()).apply();
+        Intent i = new Intent(this, MouseService.class);
+        i.setAction(MouseService.ACTION_START);
+        i.putExtra(MouseService.EXTRA_HOST, h);
+        i.putExtra(MouseService.EXTRA_PORT, pt);
+        i.putExtra(MouseService.EXTRA_PIN, p);
+        i.putExtra(MouseService.EXTRA_SENS, sens);
+        i.putExtra(MouseService.EXTRA_AUTO, autoSwitch.isChecked());
+        startForegroundServiceCompat(i);
+        setMode(currentMode);
+    }
+
+    private void serviceAction(String action) {
+        Intent i = new Intent(this, MouseService.class); i.setAction(action); startForegroundServiceCompat(i);
+    }
+
+    private void startForegroundServiceCompat(Intent i) {
+        if (Build.VERSION.SDK_INT >= 26) startForegroundService(i); else startService(i);
+    }
+
+    private void loadPrefs() {
+        SharedPreferences p = getSharedPreferences("floatmouse", MODE_PRIVATE);
+        host.setText(p.getString("host", ""));
+        port.setText(String.valueOf(p.getInt("port", 38777)));
+        pin.setText(p.getString("pin", ""));
+        sensitivity.setProgress(p.getInt("sensProgress", 80));
+        autoSwitch.setChecked(p.getBoolean("auto", true));
+    }
+
+    private void requestUsefulPermissions() {
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_PERMS);
+        }
+    }
+
+    private void requestDeskMode() {
+        if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            setMode(MouseService.MODE_DESK);
+            return;
+        }
+        pendingCameraAction = 1;
+        showCameraDisclosure();
+    }
+
+    private void requestCalibration() {
+        if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            setMode(MouseService.MODE_DESK);
+            serviceAction(MouseService.ACTION_CALIBRATE);
+            return;
+        }
+        pendingCameraAction = 2;
+        showCameraDisclosure();
+    }
+
+    private void showCameraDisclosure() {
+        new AlertDialog.Builder(this)
+                .setTitle("Desk Mouse needs camera access")
+                .setMessage("FloatMouse uses the rear camera only to estimate how the phone moves across the desk. Camera frames are processed on this phone for motion tracking; they are not saved, uploaded, or sent to the paired PC. You can use Touchpad and Air Mouse without camera access.")
+                .setNegativeButton("Not now", (d,w) -> { pendingCameraAction = 0; status.setText("Camera access not enabled • Touchpad and Air Mouse still work"); })
+                .setPositiveButton("Continue", (d,w) -> requestPermissions(new String[]{Manifest.permission.CAMERA}, REQ_PERMS + 1))
+                .show();
+    }
+
+    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQ_PERMS + 1) {
+            boolean granted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+            int action = pendingCameraAction; pendingCameraAction = 0;
+            if (!granted) { status.setText("Camera denied • Desk Mouse disabled"); return; }
+            if (action == 2) { setMode(MouseService.MODE_DESK); serviceAction(MouseService.ACTION_CALIBRATE); }
+            else if (action == 1) setMode(MouseService.MODE_DESK);
+        }
+    }
+
+    @Override public void onStatus(String text) { runOnUiThread(() -> status.setText(text)); }
+
+    @Override protected void onResume() { super.onResume(); MouseService.setStatusListener(this); }
+    @Override protected void onPause() { MouseService.setStatusListener(null); super.onPause(); }
+
+    private LinearLayout row() { LinearLayout x = new LinearLayout(this); x.setOrientation(LinearLayout.HORIZONTAL); x.setGravity(Gravity.CENTER_VERTICAL); return x; }
+    private TextView text(String s, float sp, int color, boolean bold) { TextView v = new TextView(this); v.setText(s); v.setTextSize(sp); v.setTextColor(color); if (bold) v.setTypeface(Typeface.DEFAULT, Typeface.BOLD); return v; }
+    private EditText field(String hint, int type) { EditText e = new EditText(this); e.setHint(hint); e.setHintTextColor(Color.rgb(110,122,143)); e.setTextColor(Color.WHITE); e.setSingleLine(true); e.setInputType(type); e.setBackgroundColor(Color.rgb(24,29,40)); e.setPadding(dp(10),dp(9),dp(10),dp(9)); return e; }
+    private Button actionButton(String s, boolean primary) { Button b = new Button(this); b.setText(s); b.setAllCaps(false); b.setTypeface(Typeface.DEFAULT, Typeface.BOLD); b.setTextColor(Color.WHITE); b.setBackgroundColor(primary ? Color.rgb(47,100,196) : Color.rgb(34,42,57)); b.setPadding(dp(8),dp(8),dp(8),dp(8)); return b; }
+    private View info(String a, String b) { LinearLayout r=row(); r.setPadding(0,dp(7),0,dp(7)); TextView l=text(a,13,Color.WHITE,true); TextView d=text(b,12,Color.rgb(151,164,187),false); d.setGravity(Gravity.END); r.addView(l,weighted(1)); r.addView(d,weighted(2)); return r; }
+    private void space(LinearLayout l, int dp) { Space s=new Space(this); l.addView(s,new LinearLayout.LayoutParams(this.dp(dp), this.dp(dp))); }
+    private LinearLayout.LayoutParams full() { return new Line
