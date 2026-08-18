@@ -1,0 +1,149 @@
+package com.floatmouse.app;
+
+import android.Manifest;
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.os.Build;
+import android.os.Bundle;
+import android.provider.Settings;
+import android.text.InputType;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.Button;
+import android.widget.CheckBox;
+import android.widget.EditText;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.SeekBar;
+import android.widget.Space;
+import android.widget.TextView;
+
+public class MainActivity extends Activity implements MouseService.StatusListener {
+    private static final int REQ_PERMS = 42;
+    private EditText host, port, pin;
+    private TextView status, sensitivityLabel, calibrationHint;
+    private SeekBar sensitivity;
+    private CheckBox autoSwitch;
+    private LinearLayout modeRow;
+    private MousePadView pad;
+    private String currentMode = MouseService.MODE_TOUCHPAD;
+    private int pendingCameraAction = 0; // 1=Desk mode, 2=Desk calibration
+
+    private int dp(float n) { return (int)(n * getResources().getDisplayMetrics().density + .5f); }
+
+    @Override protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        getWindow().setStatusBarColor(Color.rgb(11,14,20));
+        buildUi();
+        loadPrefs();
+        requestUsefulPermissions();
+        MouseService.setStatusListener(this);
+    }
+
+    private void buildUi() {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setBackgroundColor(Color.rgb(11,14,20));
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(18), dp(18), dp(18), dp(28));
+        scroll.addView(root, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        TextView title = text("FLOATMOUSE", 30, Color.WHITE, true);
+        root.addView(title);
+        TextView sub = text("PHONE → MOUSE  •  TOUCHPAD  •  AIR  •  DESK", 12, Color.rgb(142,156,181), false);
+        sub.setLetterSpacing(.08f); root.addView(sub);
+        space(root, 16);
+
+        status = text("Not connected", 14, Color.rgb(126,238,171), true);
+        status.setPadding(dp(12), dp(10), dp(12), dp(10));
+        status.setBackgroundColor(Color.rgb(19,42,34));
+        root.addView(status, full());
+        space(root, 14);
+
+        TextView pairHead = text("PAIR WITH WINDOWS RECEIVER", 13, Color.rgb(188,198,216), true);
+        root.addView(pairHead);
+        LinearLayout pair = row();
+        host = field("PC IP", InputType.TYPE_CLASS_PHONE); pair.addView(host, weighted(1.6f));
+        space(pair, 8);
+        port = field("Port", InputType.TYPE_CLASS_NUMBER); pair.addView(port, weighted(.75f));
+        space(pair, 8);
+        pin = field("PIN", InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD); pair.addView(pin, weighted(.9f));
+        root.addView(pair, full());
+        space(root, 10);
+        Button connect = actionButton("CONNECT / RECONNECT", true);
+        connect.setOnClickListener(v -> connect()); root.addView(connect, full());
+        space(root, 18);
+
+        root.addView(text("MOUSE MODE", 13, Color.rgb(188,198,216), true));
+        modeRow = row();
+        addModeButton("TOUCHPAD", MouseService.MODE_TOUCHPAD);
+        addModeButton("AIR MOUSE", MouseService.MODE_AIR);
+        addModeButton("DESK MOUSE", MouseService.MODE_DESK);
+        root.addView(modeRow, full());
+        space(root, 12);
+
+        pad = new MousePadView(this);
+        LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(245));
+        pad.setLayoutParams(pp); root.addView(pad);
+        space(root, 12);
+
+        LinearLayout quick = row();
+        Button recenter = actionButton("RECENTER", false);
+        recenter.setOnClickListener(v -> serviceAction(MouseService.ACTION_RECENTER));
+        quick.addView(recenter, weighted(1)); space(quick, 8);
+        Button calibrate = actionButton("CALIBRATE SURFACE", false);
+        calibrate.setOnClickListener(v -> requestCalibration());
+        quick.addView(calibrate, weighted(1.4f));
+        root.addView(quick, full());
+
+        calibrationHint = text("Desk calibration: set phone face-up and slide left/right + forward/back. Both volume buttons = quick calibrate/recenter.", 12, Color.rgb(151,164,187), false);
+        calibrationHint.setPadding(0, dp(8), 0, 0); root.addView(calibrationHint);
+        space(root, 18);
+
+        sensitivityLabel = text("Sensitivity: 100%", 13, Color.rgb(188,198,216), true);
+        root.addView(sensitivityLabel);
+        sensitivity = new SeekBar(this); sensitivity.setMax(180); sensitivity.setProgress(80);
+        sensitivity.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar s, int p, boolean fromUser) { sensitivityLabel.setText("Sensitivity: " + (p + 20) + "%"); }
+            @Override public void onStartTrackingTouch(SeekBar s) {}
+            @Override public void onStopTrackingTouch(SeekBar s) { connect(); }
+        });
+        root.addView(sensitivity, full());
+        autoSwitch = new CheckBox(this);
+        autoSwitch.setText("Auto switch Desk ↔ Air when phone is picked up / set down");
+        autoSwitch.setTextColor(Color.rgb(213,220,233));
+        autoSwitch.setChecked(true);
+        root.addView(autoSwitch, full());
+        space(root, 14);
+
+        TextView controls = text("SCREEN-OFF HARDWARE CONTROLS", 13, Color.rgb(188,198,216), true);
+        root.addView(controls);
+        root.addView(info("Volume Down", "Left click"));
+        root.addView(info("Volume Up", "Right click"));
+        root.addView(info("Twist / roll phone", "Scroll up or down with screen off"));
+        root.addView(info("Both buttons", "Desk: calibrate • Air: recenter"));
+        root.addView(info("Air Mouse", "Gyroscope keeps moving cursor with screen black"));
+        space(root, 16);
+
+        Button stop = actionButton("STOP FLOATMOUSE", false);
+        stop.setOnClickListener(v -> { Intent i = new Intent(this, MouseService.class); i.setAction(MouseService.ACTION_STOP); startService(i); status.setText("Stopped"); });
+        root.addView(stop, full());
+        space(root, 10);
+
+        Button privacy = actionButton("PRIVACY & SETTINGS", false);
+        privacy.setOnClickListener(v -> startActivity(new Intent(this, PrivacySettingsActivity.class)));
+        root.addView(privacy, full());
+        setContentView(scroll);
+    }
+
+    private void addModeButton(String label, String mode) {
+        Button b = actionButton(label, false);
+        b.setTextSize(11);
+        b.setOnClickListener(v
