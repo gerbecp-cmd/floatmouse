@@ -6,6 +6,7 @@ on:
     branches: [ main ]
     paths:
       - '.buildsource/**'
+      - '.patchsource/**'
       - '.github/workflows/build-android.yml'
 
 permissions:
@@ -25,6 +26,20 @@ jobs:
           base64 -d floatmouse-source.tgz.b64 > floatmouse-source.tgz
           tar -xzf floatmouse-source.tgz
           test -f android/app/src/main/AndroidManifest.xml
+
+      - name: Apply v1.1 privacy and safety overlay
+        shell: bash
+        run: |
+          JAVA_DIR=android/app/src/main/java/com/floatmouse/app
+          cat .patchsource/MainActivity.part* > "$JAVA_DIR/MainActivity.java"
+          cp .patchsource/ConsentActivity.java "$JAVA_DIR/ConsentActivity.java"
+          cp .patchsource/LegalActivity.java "$JAVA_DIR/LegalActivity.java"
+          cp .patchsource/PrivacySettingsActivity.java "$JAVA_DIR/PrivacySettingsActivity.java"
+          cp .patchsource/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+          cp .patchsource/app.build.gradle android/app/build.gradle
+          grep -q 'versionName.*1.1.0' android/app/build.gradle
+          grep -q 'ConsentActivity' android/app/src/main/AndroidManifest.xml
+          grep -q 'PRIVACY & SETTINGS' "$JAVA_DIR/MainActivity.java"
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -69,7 +84,7 @@ jobs:
       - name: Upload FloatMouse APK
         uses: actions/upload-artifact@v4
         with:
-          name: FloatMouse-debug-apk
+          name: FloatMouse-v1.1-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
