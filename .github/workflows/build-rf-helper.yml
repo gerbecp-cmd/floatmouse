@@ -21,7 +21,7 @@ jobs:
       - name: Rehydrate RF Helper source
         shell: bash
         run: |
-          cat .rfhelper/source.part* > rf-helper-source.zip.b64
+          cat .rfhelper/source.part00 .rfhelper/source.part01 .rfhelper/source.part02 .rfhelper/source.part03 .rfhelper/source.part04 .rfhelper/source.part05 .rfhelper/source.part06 .rfhelper/source.part07 .rfhelper/source.part08 > rf-helper-source.zip.b64
           base64 -d rf-helper-source.zip.b64 > rf-helper-source.zip
           unzip -t rf-helper-source.zip
           unzip -q rf-helper-source.zip
