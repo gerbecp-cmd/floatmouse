@@ -1,4 +1,4 @@
-status=failure
-run_id=32605082333
-commit=6b4d371abe4cca14619d62b6e56736a0c474c0f7
+status=success
+run_id=32605111158
+commit=d7937047d7e4f6dba30725526a8e01ce435de696
 version=0.2.0-test
