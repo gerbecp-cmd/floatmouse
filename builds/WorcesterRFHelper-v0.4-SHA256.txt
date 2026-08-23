@@ -1,0 +1,1 @@
+162b578c3cd82d25aae1a96dea5e6f0b5f96c65e2f8d052e1f230425dfce2cd7  builds/WorcesterRFHelper-v0.4-rf-pilot.apk
