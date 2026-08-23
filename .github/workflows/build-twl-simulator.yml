@@ -1,0 +1,96 @@
+name: Build Worcester TWL Simulator APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '.twlsim/build.trigger'
+      - '.github/workflows/build-twl-simulator.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build-twl-simulator:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Rehydrate simulator source
+        shell: bash
+        run: |
+          cat .twlsim/source.part00 .twlsim/source.part01 .twlsim/source.part02 > twlsim-source.zip.b64
+          base64 -d twlsim-source.zip.b64 > twlsim-source.zip
+          unzip -t twlsim-source.zip
+          unzip -q twlsim-source.zip
+          test -f worcester-twl-simulator/app/src/main/AndroidManifest.xml
+          grep -q 'com.worcester.twlsimulator' worcester-twl-simulator/app/build.gradle
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Install Android SDK 35
+        shell: bash
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          fi
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0'
+
+      - name: Build APK
+        shell: bash
+        working-directory: worcester-twl-simulator
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Verify APK
+        shell: bash
+        run: |
+          test -s worcester-twl-simulator/app/build/outputs/apk/debug/app-debug.apk
+          sha256sum worcester-twl-simulator/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Worcester-TWL-Simulator-v1.0-apk
+          path: worcester-twl-simulator/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish APK to repository
+        if: success()
+        shell: bash
+        run: |
+          mkdir -p builds
+          cp worcester-twl-simulator/app/build/outputs/apk/debug/app-debug.apk builds/Worcester-TWL-Simulator-v1.0.apk
+          sha256sum builds/Worcester-TWL-Simulator-v1.0.apk > builds/Worcester-TWL-Simulator-v1.0-SHA256.txt
+          printf 'status=success\nrun_id=%s\ncommit=%s\nversion=1.0.0\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/Worcester-TWL-Simulator-LATEST.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add builds/Worcester-TWL-Simulator-v1.0.apk builds/Worcester-TWL-Simulator-v1.0-SHA256.txt builds/Worcester-TWL-Simulator-LATEST.txt
+          git commit -m 'Publish Worcester TWL Simulator v1.0 APK' || true
+          git push
+
+      - name: Publish failure status
+        if: failure()
+        shell: bash
+        run: |
+          mkdir -p builds
+          printf 'status=failure\nrun_id=%s\ncommit=%s\nversion=1.0.0\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/Worcester-TWL-Simulator-LATEST.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add builds/Worcester-TWL-Simulator-LATEST.txt
+          git commit -m 'Record failed Worcester TWL Simulator build' || true
+          git push || true
