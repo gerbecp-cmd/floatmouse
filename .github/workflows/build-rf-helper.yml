@@ -21,12 +21,12 @@ jobs:
       - name: Rehydrate RF Helper source
         shell: bash
         run: |
-          cat .rfhelper/source.part00 .rfhelper/source.part01 .rfhelper/source.part02 .rfhelper/source.part03 .rfhelper/source.part04 .rfhelper/source.part05 .rfhelper/source.part06 .rfhelper/source.part07 .rfhelper/source.part08 > rf-helper-source.zip.b64
-          base64 -d rf-helper-source.zip.b64 > rf-helper-source.zip
+          cp .rfhelper/rf-helper-source-v0.4.zip rf-helper-source.zip
           unzip -t rf-helper-source.zip
           unzip -q rf-helper-source.zip
           test -f worcester-rf-helper/app/src/main/AndroidManifest.xml
-          grep -q "0.3.0-background-test" worcester-rf-helper/app/build.gradle
+          grep -q "0.4.0-rf-pilot" worcester-rf-helper/app/build.gradle
+          ! grep -q "android.intent.category.LAUNCHER" worcester-rf-helper/app/src/main/AndroidManifest.xml
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -53,8 +53,7 @@ jobs:
       - name: Test and build APK
         shell: bash
         working-directory: worcester-rf-helper
-        run: |
-          gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
+        run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
 
       - name: Verify APK
         shell: bash
@@ -65,7 +64,7 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: WorcesterRFHelper-v0.3-background-test-apk
+          name: WorcesterRFHelper-v0.4-rf-pilot-apk
           path: worcester-rf-helper/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
@@ -75,13 +74,13 @@ jobs:
         shell: bash
         run: |
           mkdir -p builds
-          cp worcester-rf-helper/app/build/outputs/apk/debug/app-debug.apk builds/WorcesterRFHelper-v0.3-background-test.apk
-          sha256sum builds/WorcesterRFHelper-v0.3-background-test.apk > builds/WorcesterRFHelper-v0.3-SHA256.txt
-          printf 'status=success\nrun_id=%s\ncommit=%s\nversion=0.3.0-background-test\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/WorcesterRFHelper-LATEST.txt
+          cp worcester-rf-helper/app/build/outputs/apk/debug/app-debug.apk builds/WorcesterRFHelper-v0.4-rf-pilot.apk
+          sha256sum builds/WorcesterRFHelper-v0.4-rf-pilot.apk > builds/WorcesterRFHelper-v0.4-SHA256.txt
+          printf 'status=success\nrun_id=%s\ncommit=%s\nversion=0.4.0-rf-pilot\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/WorcesterRFHelper-LATEST.txt
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add builds/WorcesterRFHelper-v0.3-background-test.apk builds/WorcesterRFHelper-v0.3-SHA256.txt builds/WorcesterRFHelper-LATEST.txt
-          git commit -m 'Publish Worcester RF Helper v0.3 background test APK' || true
+          git add builds/WorcesterRFHelper-v0.4-rf-pilot.apk builds/WorcesterRFHelper-v0.4-SHA256.txt builds/WorcesterRFHelper-LATEST.txt
+          git commit -m 'Publish Worcester RF Helper v0.4 RF pilot APK' || true
           git push
 
       - name: Publish failure status
@@ -89,9 +88,9 @@ jobs:
         shell: bash
         run: |
           mkdir -p builds
-          printf 'status=failure\nrun_id=%s\ncommit=%s\nversion=0.3.0-background-test\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/WorcesterRFHelper-LATEST.txt
+          printf 'status=failure\nrun_id=%s\ncommit=%s\nversion=0.4.0-rf-pilot\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/WorcesterRFHelper-LATEST.txt
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add builds/WorcesterRFHelper-LATEST.txt
-          git commit -m 'Record failed Worcester RF Helper v0.3 build' || true
+          git commit -m 'Record failed Worcester RF Helper v0.4 build' || true
           git push || true
