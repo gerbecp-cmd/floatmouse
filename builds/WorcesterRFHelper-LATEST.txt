@@ -1,4 +1,4 @@
-status=success
-run_id=32606826179
-commit=8f0e7a6071bcb8fe5b1b0ba6aea6584bb1ea2290
-version=0.3.0-background-test
+status=failure
+run_id=32608977104
+commit=f810867ac876ab82cc4be817345d03e883a01e8e
+version=0.4.0-rf-pilot
