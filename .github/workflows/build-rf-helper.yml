@@ -34,43 +34,25 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import re
-
           manifest = Path('worcester-rf-helper/app/src/main/AndroidManifest.xml')
           text = manifest.read_text()
           text = re.sub(r'\s*<!-- No launcher icon in RF Pilot\..*?-->(?:\s*)<activity\s+android:name="\.MainActivity"\s+android:exported="true"\s*/>', '\n\n        <!-- Headless RF pilot: intentionally no Activity is declared. -->', text, flags=re.S)
           manifest.write_text(text)
           main_activity = Path('worcester-rf-helper/app/src/main/java/com/worcester/rfhelper/MainActivity.java')
           if main_activity.exists(): main_activity.unlink()
-
           service = Path('worcester-rf-helper/app/src/main/java/com/worcester/rfhelper/TwlAccessibilityService.java')
           s = service.read_text()
           s = s.replace('if(!pkg.equals(Prefs.targetPackage(this))) return;', 'if(!pkg.equals(Prefs.targetPackage(this)) && !pkg.equals("com.worcester.twlsimulator")) return;')
-          s = s.replace(
-              'if(s.toteEntry && s.order!=null){\n            long ts=System.currentTimeMillis();String tote=scan.trim().toUpperCase(Locale.US);\n            if(MappingStore.upsert(tote,s.order,ts,PeerSyncManager.get(this).deviceId()))PeerSyncManager.get(this).broadcastUpsert(tote,s.order,ts);\n            injectAndSubmit(scan,s.focused); return;\n        }',
-              'if(s.toteEntry){\n            String activeOrder=s.order!=null?s.order:lastSeenOrder;\n            if(activeOrder!=null){\n                long ts=System.currentTimeMillis();String tote=scan.trim().toUpperCase(Locale.US);\n                if(MappingStore.upsert(tote,activeOrder,ts,PeerSyncManager.get(this).deviceId()))PeerSyncManager.get(this).broadcastUpsert(tote,activeOrder,ts);\n            }\n            injectAndSubmit(scan,s.focused); return;\n        }'
-          )
-          service.write_text(s)
-
+          old_service = 'if(s.toteEntry && s.order!=null){\n            long ts=System.currentTimeMillis();String tote=scan.trim().toUpperCase(Locale.US);\n            if(MappingStore.upsert(tote,s.order,ts,PeerSyncManager.get(this).deviceId()))PeerSyncManager.get(this).broadcastUpsert(tote,s.order,ts);\n            injectAndSubmit(scan,s.focused); return;\n        }'
+          new_service = 'if(s.toteEntry){\n            String activeOrder=s.order!=null?s.order:lastSeenOrder;\n            if(activeOrder!=null){\n                long ts=System.currentTimeMillis();String tote=scan.trim().toUpperCase(Locale.US);\n                if(MappingStore.upsert(tote,activeOrder,ts,PeerSyncManager.get(this).deviceId()))PeerSyncManager.get(this).broadcastUpsert(tote,activeOrder,ts);\n            }\n            injectAndSubmit(scan,s.focused); return;\n        }'
+          if old_service not in s: raise SystemExit('TwlAccessibilityService expected block not found')
+          service.write_text(s.replace(old_service,new_service))
           parser = Path('worcester-rf-helper/app/src/main/java/com/worcester/rfhelper/ScreenParser.java')
           p = parser.read_text()
-          old = '''        String focusText=nodeText(focused).toLowerCase(Locale.US);
-        boolean orderEntry=focusText.contains("order") || low.contains("pick by order") || low.contains("scan order") || low.contains("enter order");
-        boolean toteEntry=focusText.contains("tote") || focusText.contains("container") || focusText.contains("carton") || low.contains("scan tote") || low.contains("enter tote") || low.contains("scan container") || low.contains("enter container");'''
-          new = '''        String focusText=nodeText(focused).toLowerCase(Locale.US);
-        boolean focusOrder=focusText.contains("order");
-        boolean focusTote=focusText.contains("tote") || focusText.contains("container") || focusText.contains("carton");
-        boolean orderEntry,toteEntry;
-        if(focusOrder || focusTote){
-            orderEntry=focusOrder && !focusTote;
-            toteEntry=focusTote && !focusOrder;
-        }else{
-            orderEntry=low.contains("pick by order") || low.contains("scan order") || low.contains("enter order");
-            toteEntry=low.contains("scan tote") || low.contains("enter tote") || low.contains("scan container") || low.contains("enter container");
-        }'''
-          if old not in p:
-              raise SystemExit('ScreenParser expected block not found')
-          parser.write_text(p.replace(old,new))
-
+          old_parser = '        String focusText=nodeText(focused).toLowerCase(Locale.US);\n        boolean orderEntry=focusText.contains("order") || low.contains("pick by order") || low.contains("scan order") || low.contains("enter order");\n        boolean toteEntry=focusText.contains("tote") || focusText.contains("container") || focusText.contains("carton") || low.contains("scan tote") || low.contains("enter tote") || low.contains("scan container") || low.contains("enter container");'
+          new_parser = '        String focusText=nodeText(focused).toLowerCase(Locale.US);\n        boolean focusOrder=focusText.contains("order");\n        boolean focusTote=focusText.contains("tote") || focusText.contains("container") || focusText.contains("carton");\n        boolean orderEntry,toteEntry;\n        if(focusOrder || focusTote){\n            orderEntry=focusOrder && !focusTote;\n            toteEntry=focusTote && !focusOrder;\n        }else{\n            orderEntry=low.contains("pick by order") || low.contains("scan order") || low.contains("enter order");\n            toteEntry=low.contains("scan tote") || low.contains("enter tote") || low.contains("scan container") || low.contains("enter container");\n        }'
+          if old_parser not in p: raise SystemExit('ScreenParser expected block not found')
+          parser.write_text(p.replace(old_parser,new_parser))
           gradle = Path('worcester-rf-helper/app/build.gradle')
           g = gradle.read_text().replace('versionCode 4', 'versionCode 7').replace("versionName '0.4.0-rf-pilot'", "versionName '0.4.3-simulator-fix'")
           gradle.write_text(g)
