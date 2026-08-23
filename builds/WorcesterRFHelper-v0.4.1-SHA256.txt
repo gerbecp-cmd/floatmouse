@@ -1,0 +1,1 @@
+8c9704cf1a7d78138418ccdebc83cebdcf8038729836e100f0e21893022808b1  builds/WorcesterRFHelper-v0.4.1-headless-rf-pilot.apk
