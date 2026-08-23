@@ -1,0 +1,1 @@
+c68d06bfe78657ba2b99749a14d292869b41429093fec266c500bd33ec0cc5f4  builds/WorcesterRFHelper-v0.3-background-test.apk
