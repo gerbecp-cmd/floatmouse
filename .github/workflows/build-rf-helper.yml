@@ -28,7 +28,7 @@ jobs:
           test -f worcester-rf-helper/app/src/main/AndroidManifest.xml
           grep -q "0.4.0-rf-pilot" worcester-rf-helper/app/build.gradle
 
-      - name: Apply v0.4.1 headless RF patch
+      - name: Apply v0.4.2 headless simulator-test patch
         shell: bash
         run: |
           python3 - <<'PY'
@@ -49,13 +49,22 @@ jobs:
           if main_activity.exists():
               main_activity.unlink()
 
+          service = Path('worcester-rf-helper/app/src/main/java/com/worcester/rfhelper/TwlAccessibilityService.java')
+          s = service.read_text()
+          s = s.replace(
+              'if(!pkg.equals(Prefs.targetPackage(this))) return;',
+              'if(!pkg.equals(Prefs.targetPackage(this)) && !pkg.equals("com.worcester.twlsimulator")) return;'
+          )
+          service.write_text(s)
+
           gradle = Path('worcester-rf-helper/app/build.gradle')
           g = gradle.read_text()
-          g = g.replace('versionCode 4', 'versionCode 5')
-          g = g.replace("versionName '0.4.0-rf-pilot'", "versionName '0.4.1-headless-rf-pilot'")
+          g = g.replace('versionCode 4', 'versionCode 6')
+          g = g.replace("versionName '0.4.0-rf-pilot'", "versionName '0.4.2-simulator-test'")
           gradle.write_text(g)
           PY
-          grep -q "0.4.1-headless-rf-pilot" worcester-rf-helper/app/build.gradle
+          grep -q "0.4.2-simulator-test" worcester-rf-helper/app/build.gradle
+          grep -q 'com.worcester.twlsimulator' worcester-rf-helper/app/src/main/java/com/worcester/rfhelper/TwlAccessibilityService.java
           ! grep -q '<activity' worcester-rf-helper/app/src/main/AndroidManifest.xml
           ! test -f worcester-rf-helper/app/src/main/java/com/worcester/rfhelper/MainActivity.java
           ! grep -q "android.intent.category.LAUNCHER" worcester-rf-helper/app/src/main/AndroidManifest.xml
@@ -96,7 +105,7 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: WorcesterRFHelper-v0.4.1-headless-rf-pilot-apk
+          name: WorcesterRFHelper-v0.4.2-simulator-test-apk
           path: worcester-rf-helper/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
@@ -106,13 +115,13 @@ jobs:
         shell: bash
         run: |
           mkdir -p builds
-          cp worcester-rf-helper/app/build/outputs/apk/debug/app-debug.apk builds/WorcesterRFHelper-v0.4.1-headless-rf-pilot.apk
-          sha256sum builds/WorcesterRFHelper-v0.4.1-headless-rf-pilot.apk > builds/WorcesterRFHelper-v0.4.1-SHA256.txt
-          printf 'status=success\nrun_id=%s\ncommit=%s\nversion=0.4.1-headless-rf-pilot\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/WorcesterRFHelper-LATEST.txt
+          cp worcester-rf-helper/app/build/outputs/apk/debug/app-debug.apk builds/WorcesterRFHelper-v0.4.2-simulator-test.apk
+          sha256sum builds/WorcesterRFHelper-v0.4.2-simulator-test.apk > builds/WorcesterRFHelper-v0.4.2-SHA256.txt
+          printf 'status=success\nrun_id=%s\ncommit=%s\nversion=0.4.2-simulator-test\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/WorcesterRFHelper-LATEST.txt
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add builds/WorcesterRFHelper-v0.4.1-headless-rf-pilot.apk builds/WorcesterRFHelper-v0.4.1-SHA256.txt builds/WorcesterRFHelper-LATEST.txt
-          git commit -m 'Publish Worcester RF Helper v0.4.1 headless RF pilot APK' || true
+          git add builds/WorcesterRFHelper-v0.4.2-simulator-test.apk builds/WorcesterRFHelper-v0.4.2-SHA256.txt builds/WorcesterRFHelper-LATEST.txt
+          git commit -m 'Publish Worcester RF Helper v0.4.2 simulator test APK' || true
           git push
 
       - name: Publish failure status
@@ -120,9 +129,9 @@ jobs:
         shell: bash
         run: |
           mkdir -p builds
-          printf 'status=failure\nrun_id=%s\ncommit=%s\nversion=0.4.1-headless-rf-pilot\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/WorcesterRFHelper-LATEST.txt
+          printf 'status=failure\nrun_id=%s\ncommit=%s\nversion=0.4.2-simulator-test\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/WorcesterRFHelper-LATEST.txt
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add builds/WorcesterRFHelper-LATEST.txt
-          git commit -m 'Record failed Worcester RF Helper v0.4.1 headless build' || true
+          git commit -m 'Record failed Worcester RF Helper v0.4.2 simulator test build' || true
           git push || true
