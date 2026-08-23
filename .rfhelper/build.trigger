@@ -1,1 +1,1 @@
-v0.2.0-test complete source staged
+v0.3.0-background-test complete source staged
