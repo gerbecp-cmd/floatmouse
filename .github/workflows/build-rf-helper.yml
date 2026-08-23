@@ -28,28 +28,56 @@ jobs:
           test -f worcester-rf-helper/app/src/main/AndroidManifest.xml
           grep -q "0.4.0-rf-pilot" worcester-rf-helper/app/build.gradle
 
-      - name: Apply v0.4.2 headless simulator-test patch
+      - name: Apply v0.4.3 focused-field simulator fix
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import re
+
           manifest = Path('worcester-rf-helper/app/src/main/AndroidManifest.xml')
           text = manifest.read_text()
           text = re.sub(r'\s*<!-- No launcher icon in RF Pilot\..*?-->(?:\s*)<activity\s+android:name="\.MainActivity"\s+android:exported="true"\s*/>', '\n\n        <!-- Headless RF pilot: intentionally no Activity is declared. -->', text, flags=re.S)
           manifest.write_text(text)
           main_activity = Path('worcester-rf-helper/app/src/main/java/com/worcester/rfhelper/MainActivity.java')
           if main_activity.exists(): main_activity.unlink()
+
           service = Path('worcester-rf-helper/app/src/main/java/com/worcester/rfhelper/TwlAccessibilityService.java')
           s = service.read_text()
           s = s.replace('if(!pkg.equals(Prefs.targetPackage(this))) return;', 'if(!pkg.equals(Prefs.targetPackage(this)) && !pkg.equals("com.worcester.twlsimulator")) return;')
+          s = s.replace(
+              'if(s.toteEntry && s.order!=null){\n            long ts=System.currentTimeMillis();String tote=scan.trim().toUpperCase(Locale.US);\n            if(MappingStore.upsert(tote,s.order,ts,PeerSyncManager.get(this).deviceId()))PeerSyncManager.get(this).broadcastUpsert(tote,s.order,ts);\n            injectAndSubmit(scan,s.focused); return;\n        }',
+              'if(s.toteEntry){\n            String activeOrder=s.order!=null?s.order:lastSeenOrder;\n            if(activeOrder!=null){\n                long ts=System.currentTimeMillis();String tote=scan.trim().toUpperCase(Locale.US);\n                if(MappingStore.upsert(tote,activeOrder,ts,PeerSyncManager.get(this).deviceId()))PeerSyncManager.get(this).broadcastUpsert(tote,activeOrder,ts);\n            }\n            injectAndSubmit(scan,s.focused); return;\n        }'
+          )
           service.write_text(s)
+
+          parser = Path('worcester-rf-helper/app/src/main/java/com/worcester/rfhelper/ScreenParser.java')
+          p = parser.read_text()
+          old = '''        String focusText=nodeText(focused).toLowerCase(Locale.US);
+        boolean orderEntry=focusText.contains("order") || low.contains("pick by order") || low.contains("scan order") || low.contains("enter order");
+        boolean toteEntry=focusText.contains("tote") || focusText.contains("container") || focusText.contains("carton") || low.contains("scan tote") || low.contains("enter tote") || low.contains("scan container") || low.contains("enter container");'''
+          new = '''        String focusText=nodeText(focused).toLowerCase(Locale.US);
+        boolean focusOrder=focusText.contains("order");
+        boolean focusTote=focusText.contains("tote") || focusText.contains("container") || focusText.contains("carton");
+        boolean orderEntry,toteEntry;
+        if(focusOrder || focusTote){
+            orderEntry=focusOrder && !focusTote;
+            toteEntry=focusTote && !focusOrder;
+        }else{
+            orderEntry=low.contains("pick by order") || low.contains("scan order") || low.contains("enter order");
+            toteEntry=low.contains("scan tote") || low.contains("enter tote") || low.contains("scan container") || low.contains("enter container");
+        }'''
+          if old not in p:
+              raise SystemExit('ScreenParser expected block not found')
+          parser.write_text(p.replace(old,new))
+
           gradle = Path('worcester-rf-helper/app/build.gradle')
-          g = gradle.read_text().replace('versionCode 4', 'versionCode 6').replace("versionName '0.4.0-rf-pilot'", "versionName '0.4.2-simulator-test'")
+          g = gradle.read_text().replace('versionCode 4', 'versionCode 7').replace("versionName '0.4.0-rf-pilot'", "versionName '0.4.3-simulator-fix'")
           gradle.write_text(g)
           PY
-          grep -q "0.4.2-simulator-test" worcester-rf-helper/app/build.gradle
-          grep -q 'com.worcester.twlsimulator' worcester-rf-helper/app/src/main/java/com/worcester/rfhelper/TwlAccessibilityService.java
+          grep -q "0.4.3-simulator-fix" worcester-rf-helper/app/build.gradle
+          grep -q 'focusOrder' worcester-rf-helper/app/src/main/java/com/worcester/rfhelper/ScreenParser.java
+          grep -q 'activeOrder=s.order!=null?s.order:lastSeenOrder' worcester-rf-helper/app/src/main/java/com/worcester/rfhelper/TwlAccessibilityService.java
           ! grep -q '<activity' worcester-rf-helper/app/src/main/AndroidManifest.xml
 
       - name: Set up Java 17
@@ -86,7 +114,7 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: WorcesterRFHelper-v0.4.2-simulator-test-apk
+          name: WorcesterRFHelper-v0.4.3-simulator-fix-apk
           path: worcester-rf-helper/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
@@ -96,13 +124,13 @@ jobs:
         shell: bash
         run: |
           mkdir -p builds
-          cp worcester-rf-helper/app/build/outputs/apk/debug/app-debug.apk builds/WorcesterRFHelper-v0.4.2-simulator-test.apk
-          sha256sum builds/WorcesterRFHelper-v0.4.2-simulator-test.apk > builds/WorcesterRFHelper-v0.4.2-SHA256.txt
-          printf 'status=success\nrun_id=%s\ncommit=%s\nversion=0.4.2-simulator-test\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/WorcesterRFHelper-LATEST.txt
+          cp worcester-rf-helper/app/build/outputs/apk/debug/app-debug.apk builds/WorcesterRFHelper-v0.4.3-simulator-fix.apk
+          sha256sum builds/WorcesterRFHelper-v0.4.3-simulator-fix.apk > builds/WorcesterRFHelper-v0.4.3-SHA256.txt
+          printf 'status=success\nrun_id=%s\ncommit=%s\nversion=0.4.3-simulator-fix\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/WorcesterRFHelper-LATEST.txt
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add builds/WorcesterRFHelper-v0.4.2-simulator-test.apk builds/WorcesterRFHelper-v0.4.2-SHA256.txt builds/WorcesterRFHelper-LATEST.txt
-          git commit -m 'Publish Worcester RF Helper v0.4.2 simulator test APK' || true
+          git add builds/WorcesterRFHelper-v0.4.3-simulator-fix.apk builds/WorcesterRFHelper-v0.4.3-SHA256.txt builds/WorcesterRFHelper-LATEST.txt
+          git commit -m 'Publish Worcester RF Helper v0.4.3 simulator fix APK' || true
           git push
 
       - name: Publish failure status
@@ -110,11 +138,11 @@ jobs:
         shell: bash
         run: |
           mkdir -p builds
-          printf 'status=failure\nrun_id=%s\ncommit=%s\nversion=0.4.2-simulator-test\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/WorcesterRFHelper-LATEST.txt
+          printf 'status=failure\nrun_id=%s\ncommit=%s\nversion=0.4.3-simulator-fix\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/WorcesterRFHelper-LATEST.txt
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add builds/WorcesterRFHelper-LATEST.txt
-          git commit -m 'Record failed Worcester RF Helper v0.4.2 simulator test build' || true
+          git commit -m 'Record failed Worcester RF Helper v0.4.3 simulator fix build' || true
           git push || true
 
   build-twl-simulator:
@@ -133,6 +161,28 @@ jobs:
           unzip -q twlsim-source.zip
           test -f worcester-twl-simulator/app/src/main/AndroidManifest.xml
           grep -q 'com.worcester.twlsimulator' worcester-twl-simulator/app/build.gradle
+
+      - name: Apply simulator v1.1 accessibility isolation fix
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('worcester-twl-simulator/app/src/main/java/com/worcester/twlsimulator/MainActivity.java')
+          s = p.read_text()
+          s = s.replace('accessibilityButton = button("Open Accessibility Settings");\n        accessibilityButton.setOnClickListener', 'accessibilityButton = button("Open Accessibility Settings");\n        accessibilityButton.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);\n        accessibilityButton.setOnClickListener')
+          s = s.replace('orderInput = input("Order number", "987654");\n        barcodeInput = input("Barcode to scan", "TOTE-27");', 'orderInput = input("Order number", "987654");\n        barcodeInput = input("Barcode to scan", "TOTE-27");\n        orderInput.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);\n        barcodeInput.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);')
+          for var in ['scanButton','captureModeButton','orderModeButton','completeButton','clearButton']:
+              anchor = var + '.setFocusable(false);'
+              s = s.replace(anchor, anchor + '\n        ' + var + '.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);')
+          s = s.replace('orderLabel.setText("Order Number: " + raw);', 'orderLabel.setText("Order Number: " + raw);\n        orderLabel.setContentDescription("Order Number: " + raw);')
+          s = s.replace('orderLabel.setText("Scan or Enter Order");', 'orderLabel.setText("Scan or Enter Order");\n        orderLabel.setContentDescription("Scan or Enter Order");')
+          p.write_text(s)
+          g = Path('worcester-twl-simulator/app/build.gradle')
+          t = g.read_text().replace('versionCode 1','versionCode 2').replace("versionName '1.0'", "versionName '1.1'")
+          g.write_text(t)
+          PY
+          grep -q "versionName '1.1'" worcester-twl-simulator/app/build.gradle
+          grep -q 'IMPORTANT_FOR_ACCESSIBILITY_NO' worcester-twl-simulator/app/src/main/java/com/worcester/twlsimulator/MainActivity.java
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -168,7 +218,7 @@ jobs:
       - name: Upload simulator APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Worcester-TWL-Simulator-v1.0-apk
+          name: Worcester-TWL-Simulator-v1.1-apk
           path: worcester-twl-simulator/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
