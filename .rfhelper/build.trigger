@@ -1,1 +1,1 @@
-v0.4.1-headless-rf-pilot build trigger
+v0.4.2-simulator-test build trigger
