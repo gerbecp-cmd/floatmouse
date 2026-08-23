@@ -1,0 +1,1 @@
+04669bd87991a65a00db732f7ed3b39447db3bc621a5cdc51ed32790572c396a  builds/WorcesterRFHelper-v0.4.3-simulator-fix.apk
