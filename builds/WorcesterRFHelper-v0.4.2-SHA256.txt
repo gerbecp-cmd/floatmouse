@@ -1,0 +1,1 @@
+a0019a0ff9f77d422b07d789fb34cbcae756e125af61ae030dcde17791472d4f  builds/WorcesterRFHelper-v0.4.2-simulator-test.apk

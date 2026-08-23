@@ -1,4 +1,4 @@
 status=success
-run_id=32610734446
-commit=51ffdd341015b4c84aa983a68c829650db9e181c
-version=0.4.1-headless-rf-pilot
+run_id=32611842645
+commit=9a735c569b5d7ec20842b6a1d664d112ea2fcd78
+version=0.4.2-simulator-test
