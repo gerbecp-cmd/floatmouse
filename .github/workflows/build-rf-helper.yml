@@ -21,7 +21,7 @@ jobs:
       - name: Rehydrate RF Helper v0.4.4
         shell: bash
         run: |
-          cat .rfhelper44/source.part00 > rf-helper-source.zip.b64
+          cat .rfhelper44/source.part00 .rfhelper44/source.part01 .rfhelper44/source.part02 .rfhelper44/source.part03 > rf-helper-source.zip.b64
           base64 -d rf-helper-source.zip.b64 > rf-helper-source.zip
           unzip -t rf-helper-source.zip
           unzip -q rf-helper-source.zip
@@ -32,7 +32,7 @@ jobs:
       - name: Rehydrate H5 simulator v2.0
         shell: bash
         run: |
-          cat .twlh5sim/source.part00 > twl-h5-source.zip.b64
+          cat .twlh5sim/source.part00 .twlh5sim/source.part01 .twlh5sim/source.part02 > twl-h5-source.zip.b64
           base64 -d twl-h5-source.zip.b64 > twl-h5-source.zip
           unzip -t twl-h5-source.zip
           unzip -q twl-h5-source.zip
