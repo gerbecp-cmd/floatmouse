@@ -1,4 +1,4 @@
-name: Build Worcester RF Helper + TWL H5 Live Test
+name: Build Worcester RF Helper + TWL H5 Refined Test
 
 on:
   workflow_dispatch:
@@ -18,7 +18,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Rehydrate RF Helper v0.4.4
+      - name: Rehydrate RF Helper v0.4.4 base
         shell: bash
         run: |
           cat .rfhelper44/source.part00 .rfhelper44/source.part01 .rfhelper44/source.part02 .rfhelper44/source.part03 > rf-helper-source.zip.b64
@@ -26,19 +26,89 @@ jobs:
           unzip -t rf-helper-source.zip
           unzip -q rf-helper-source.zip
           grep -q "0.4.4-live-h5-test" worcester-rf-helper/app/build.gradle
-          grep -q "com.worcester.twlh5simulator" worcester-rf-helper/app/src/main/java/com/worcester/rfhelper/TwlAccessibilityService.java
-          grep -q "com.worcester.twlh5simulator" worcester-rf-helper/app/src/main/java/com/worcester/rfhelper/DataWedgeManager.java
 
-      - name: Rehydrate H5 simulator v2.0
+      - name: Apply RF Helper v0.4.5 safety and H5 fixes
         shell: bash
         run: |
-          cat .twlh5sim/source.part00 .twlh5sim/source.part01 .twlh5sim/source.part02 > twl-h5-source.zip.b64
+          python3 - <<'PY'
+          from pathlib import Path
+          base=Path('worcester-rf-helper')
+
+          p=base/'app/src/main/java/com/worcester/rfhelper/OrderNormalizer.java'
+          s=p.read_text()
+          old='''        if (s.isEmpty()) return null;\n        if (s.startsWith("O")) s = s.substring(1);'''
+          new='''        if (s.isEmpty()) return null;\n        // TWL display suffix (example: 0003410563-00) is not part of Pick By Order.\n        if (s.matches(".*-\\\\d{2}$")) s = s.substring(0, s.lastIndexOf('-'));\n        if (s.startsWith("O")) s = s.substring(1);'''
+          if old not in s: raise SystemExit('OrderNormalizer patch anchor not found')
+          p.write_text(s.replace(old,new))
+
+          p=base/'app/src/main/java/com/worcester/rfhelper/ScreenParser.java'
+          s=p.read_text()
+          old='''        boolean focusOrder=focusText.contains("order");\n        boolean focusTote=focusText.contains("tote") || focusText.contains("container") || focusText.contains("carton");\n        boolean orderEntry,toteEntry;\n        if(focusOrder || focusTote){\n            orderEntry=focusOrder && !focusTote;\n            toteEntry=focusTote && !focusOrder;\n        }else{\n            orderEntry=low.contains("pick by order") || low.contains("scan order") || low.contains("enter order");\n            toteEntry=low.contains("scan tote") || low.contains("enter tote") || low.contains("scan container") || low.contains("enter container");\n        }'''
+          new='''        boolean focusOrder=focusText.contains("order");\n        boolean focusTote=focusText.contains("tote") || focusText.contains("container") || focusText.contains("carton");\n        boolean orderEntry,toteEntry;\n        boolean focusedEditable=focused!=null && focused.isEditable();\n        if(focusedEditable && !focusText.isBlank()){\n            orderEntry=focusOrder && !focusTote;\n            toteEntry=focusTote && !focusOrder;\n        }else{\n            orderEntry=low.contains("pick by order") || low.contains("scan order") || low.contains("enter order");\n            toteEntry=low.contains("scan tote") || low.contains("enter tote") || low.contains("scan container") || low.contains("enter container");\n        }'''
+          if old not in s: raise SystemExit('ScreenParser patch anchor not found')
+          p.write_text(s.replace(old,new))
+
+          p=base/'app/src/main/java/com/worcester/rfhelper/MappingStore.java'
+          s=p.read_text()
+          anchor='''    public static synchronized boolean upsert(String tote,String order,long ts,String device){\n        return merge(tote,order,ts,true,device);\n    }\n'''
+          addition='''    public static synchronized boolean upsert(String tote,String order,long ts,String device){\n        return merge(tote,order,ts,true,device);\n    }\n\n    /** Local bind with active-tote conflict protection. */\n    public static synchronized boolean bindIfAvailable(String tote,String order,long ts,String device){\n        tote=canonTote(tote);\n        order=OrderNormalizer.normalize(order);\n        if(tote.isEmpty() || order==null)return false;\n        Mapping old=get(tote);\n        if(old!=null && old.active && !old.order.equals(order))return false;\n        return merge(tote,order,ts,true,device);\n    }\n'''
+          if anchor not in s: raise SystemExit('MappingStore patch anchor not found')
+          p.write_text(s.replace(anchor,addition))
+
+          p=base/'app/src/main/java/com/worcester/rfhelper/TwlAccessibilityService.java'
+          s=p.read_text()
+          old='if(MappingStore.upsert(tote,activeOrder,ts,PeerSyncManager.get(this).deviceId()))PeerSyncManager.get(this).broadcastUpsert(tote,activeOrder,ts);'
+          new='if(MappingStore.bindIfAvailable(tote,activeOrder,ts,PeerSyncManager.get(this).deviceId()))PeerSyncManager.get(this).broadcastUpsert(tote,activeOrder,ts);'
+          if old not in s: raise SystemExit('TwlAccessibilityService patch anchor not found')
+          p.write_text(s.replace(old,new))
+
+          p=base/'app/src/test/java/com/worcester/rfhelper/OrderNormalizerTest.java'
+          s=p.read_text()
+          anchor='    @Test public void junkRejected(){assertNull(OrderNormalizer.normalize("TOTE-27"));}\n'
+          extra='''    @Test public void junkRejected(){assertNull(OrderNormalizer.normalize("TOTE-27"));}\n    @Test public void twlSuffixRemoved(){assertEquals("O003410563",OrderNormalizer.normalize("0003410563-00"));}\n    @Test public void twlCoreNormalizes(){assertEquals("O003410563",OrderNormalizer.normalize("3410563"));}\n'''
+          if anchor not in s: raise SystemExit('OrderNormalizerTest patch anchor not found')
+          p.write_text(s.replace(anchor,extra))
+
+          p=base/'app/build.gradle'
+          s=p.read_text().replace('versionCode 8','versionCode 9').replace("versionName '0.4.4-live-h5-test'","versionName '0.4.5-h5-refined'")
+          p.write_text(s)
+          PY
+          grep -q "0.4.5-h5-refined" worcester-rf-helper/app/build.gradle
+          grep -q "focusedEditable" worcester-rf-helper/app/src/main/java/com/worcester/rfhelper/ScreenParser.java
+          grep -q "bindIfAvailable" worcester-rf-helper/app/src/main/java/com/worcester/rfhelper/MappingStore.java
+          grep -q "twlSuffixRemoved" worcester-rf-helper/app/src/test/java/com/worcester/rfhelper/OrderNormalizerTest.java
+
+      - name: Rehydrate TWL H5 simulator v2.1 refined
+        shell: bash
+        run: |
+          cat .twlh5sim21/source.part00 .twlh5sim21/source.part01 .twlh5sim21/source.part02 > twl-h5-source.zip.b64
           base64 -d twl-h5-source.zip.b64 > twl-h5-source.zip
           unzip -t twl-h5-source.zip
           unzip -q twl-h5-source.zip
-          grep -q "2.0-live-scan" worcester-twl-h5-simulator/app/build.gradle
-          grep -q "998995" worcester-twl-h5-simulator/app/src/main/java/com/worcester/twlh5simulator/MainActivity.java
-          grep -q "Scan focused field with camera" worcester-twl-h5-simulator/app/src/main/java/com/worcester/twlh5simulator/MainActivity.java
+          grep -q "2.1-refined-live-scan" worcester-twl-h5-simulator/app/build.gradle
+          grep -q "Run RF Helper Integration Test" worcester-twl-h5-simulator/app/src/main/java/com/worcester/twlh5simulator/MainActivity.java
+          grep -q "External USB/Bluetooth scanner supported" worcester-twl-h5-simulator/app/src/main/java/com/worcester/twlh5simulator/MainActivity.java
+
+      - name: Cross-project contract checks
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          helper_service=Path('worcester-rf-helper/app/src/main/java/com/worcester/rfhelper/TwlAccessibilityService.java').read_text()
+          helper_dw=Path('worcester-rf-helper/app/src/main/java/com/worcester/rfhelper/DataWedgeManager.java').read_text()
+          sim=Path('worcester-twl-h5-simulator/app/src/main/java/com/worcester/twlh5simulator/MainActivity.java').read_text()
+          assert 'com.worcester.twlh5simulator' in helper_service
+          assert 'com.worcester.twlh5simulator' in helper_dw
+          assert 'com.worcester.rfhelper.SCAN' in helper_dw and 'com.worcester.rfhelper.SCAN' in sim
+          assert 'Pick By Order - Scan Order' in sim
+          assert 'Pt/Tote Scan Tote Container' in sim
+          assert 'ORDER FULLY PICKED' in sim
+          assert 'Run RF Helper Integration Test' in sim
+          for wave in ['998991','998992','998993','998994','998995']:
+              assert wave in sim
+          assert 'TOTE-101' not in sim and 'TOTE-125' not in sim
+          print('Cross-project scan contract: PASS')
+          PY
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -60,12 +130,12 @@ jobs:
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0'
 
-      - name: Build RF Helper
+      - name: Test and build RF Helper
         shell: bash
         working-directory: worcester-rf-helper
         run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
 
-      - name: Build H5 simulator
+      - name: Build TWL H5 simulator
         shell: bash
         working-directory: worcester-twl-h5-simulator
         run: gradle --no-daemon :app:assembleDebug
@@ -81,14 +151,14 @@ jobs:
       - name: Upload RF Helper artifact
         uses: actions/upload-artifact@v4
         with:
-          name: WorcesterRFHelper-v0.4.4-live-h5-test-apk
+          name: WorcesterRFHelper-v0.4.5-h5-refined-apk
           path: worcester-rf-helper/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
 
       - name: Upload H5 simulator artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Worcester-TWL-H5-Test-v2.0-live-scan-apk
+          name: Worcester-TWL-H5-Test-v2.1-refined-live-scan-apk
           path: worcester-twl-h5-simulator/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
 
@@ -97,15 +167,15 @@ jobs:
         shell: bash
         run: |
           mkdir -p builds
-          cp worcester-rf-helper/app/build/outputs/apk/debug/app-debug.apk builds/WorcesterRFHelper-v0.4.4-live-h5-test.apk
-          cp worcester-twl-h5-simulator/app/build/outputs/apk/debug/app-debug.apk builds/Worcester-TWL-H5-Test-v2.0-live-scan.apk
-          sha256sum builds/WorcesterRFHelper-v0.4.4-live-h5-test.apk > builds/WorcesterRFHelper-v0.4.4-SHA256.txt
-          sha256sum builds/Worcester-TWL-H5-Test-v2.0-live-scan.apk > builds/Worcester-TWL-H5-Test-v2.0-SHA256.txt
-          printf 'status=success\nrun_id=%s\ncommit=%s\nhelper=0.4.4-live-h5-test\nsimulator=2.0-live-scan\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/Worcester-TWL-H5-LIVE-LATEST.txt
+          cp worcester-rf-helper/app/build/outputs/apk/debug/app-debug.apk builds/WorcesterRFHelper-v0.4.5-h5-refined.apk
+          cp worcester-twl-h5-simulator/app/build/outputs/apk/debug/app-debug.apk builds/Worcester-TWL-H5-Test-v2.1-refined-live-scan.apk
+          sha256sum builds/WorcesterRFHelper-v0.4.5-h5-refined.apk > builds/WorcesterRFHelper-v0.4.5-SHA256.txt
+          sha256sum builds/Worcester-TWL-H5-Test-v2.1-refined-live-scan.apk > builds/Worcester-TWL-H5-Test-v2.1-SHA256.txt
+          printf 'status=success\nrun_id=%s\ncommit=%s\nhelper=0.4.5-h5-refined\nsimulator=2.1-refined-live-scan\ncontracts=pass\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/Worcester-TWL-H5-LIVE-LATEST.txt
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add builds/WorcesterRFHelper-v0.4.4-live-h5-test.apk builds/Worcester-TWL-H5-Test-v2.0-live-scan.apk builds/WorcesterRFHelper-v0.4.4-SHA256.txt builds/Worcester-TWL-H5-Test-v2.0-SHA256.txt builds/Worcester-TWL-H5-LIVE-LATEST.txt
-          git commit -m 'Publish Worcester TWL H5 live tote test APKs' || true
+          git add builds/WorcesterRFHelper-v0.4.5-h5-refined.apk builds/Worcester-TWL-H5-Test-v2.1-refined-live-scan.apk builds/WorcesterRFHelper-v0.4.5-SHA256.txt builds/Worcester-TWL-H5-Test-v2.1-SHA256.txt builds/Worcester-TWL-H5-LIVE-LATEST.txt
+          git commit -m 'Publish refined Worcester TWL H5 test APKs' || true
           git push
 
       - name: Publish failure status
@@ -113,9 +183,9 @@ jobs:
         shell: bash
         run: |
           mkdir -p builds
-          printf 'status=failure\nrun_id=%s\ncommit=%s\nhelper=0.4.4-live-h5-test\nsimulator=2.0-live-scan\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/Worcester-TWL-H5-LIVE-LATEST.txt
+          printf 'status=failure\nrun_id=%s\ncommit=%s\nhelper=0.4.5-h5-refined\nsimulator=2.1-refined-live-scan\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/Worcester-TWL-H5-LIVE-LATEST.txt
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add builds/Worcester-TWL-H5-LIVE-LATEST.txt
-          git commit -m 'Record failed Worcester TWL H5 live tote test build' || true
+          git commit -m 'Record failed refined Worcester TWL H5 build' || true
           git push || true
