@@ -1,5 +1,5 @@
-status=failure
-run_id=32850026318
-commit=97f973a39f1f81f66f2c0fc365baa73aaf04da30
+status=success
+run_id=32850972219
+commit=302d7c78150160fa360411fc0d1a4d8702fa382d
 helper=0.4.4-live-h5-test
 simulator=2.0-live-scan
