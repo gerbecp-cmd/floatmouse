@@ -107,3 +107,15 @@ jobs:
           git add builds/WorcesterRFHelper-v0.4.4-live-h5-test.apk builds/Worcester-TWL-H5-Test-v2.0-live-scan.apk builds/WorcesterRFHelper-v0.4.4-SHA256.txt builds/Worcester-TWL-H5-Test-v2.0-SHA256.txt builds/Worcester-TWL-H5-LIVE-LATEST.txt
           git commit -m 'Publish Worcester TWL H5 live tote test APKs' || true
           git push
+
+      - name: Publish failure status
+        if: failure()
+        shell: bash
+        run: |
+          mkdir -p builds
+          printf 'status=failure\nrun_id=%s\ncommit=%s\nhelper=0.4.4-live-h5-test\nsimulator=2.0-live-scan\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/Worcester-TWL-H5-LIVE-LATEST.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add builds/Worcester-TWL-H5-LIVE-LATEST.txt
+          git commit -m 'Record failed Worcester TWL H5 live tote test build' || true
+          git push || true
