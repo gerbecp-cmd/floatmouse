@@ -1,1 +1,1 @@
-990807d16bb6382f4d95d35be392718be5a4cf02c9fc250baee6bdce21880c99  builds/WorcesterRFHelper-v0.4.4-live-h5-test.apk
+859ccceae3bfaecc9d19dc932a2b7a78fcf26b0eec6ad13147d61d8d30a4dd54  builds/WorcesterRFHelper-v0.4.4-live-h5-test.apk

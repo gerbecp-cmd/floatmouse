@@ -1,1 +1,1 @@
-2c9cdbb069d23c3328c1dfb888e362ef8f7b701d3ed5bc89a585177f449f5c3d  builds/Worcester-TWL-H5-Test-v2.0-live-scan.apk
+5db5780b15cbf771f3977a6333a86368b5ba986e67ea7f9dfa52e5ac9edd67e8  builds/Worcester-TWL-H5-Test-v2.0-live-scan.apk
