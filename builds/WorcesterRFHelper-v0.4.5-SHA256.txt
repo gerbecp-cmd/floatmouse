@@ -1,0 +1,1 @@
+8ae610fd8f27be647ea5c94cb9836c485f34c491d12470966fb900b792d8f870  builds/WorcesterRFHelper-v0.4.5-h5-refined.apk
