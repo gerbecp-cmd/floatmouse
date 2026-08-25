@@ -1,1 +1,1 @@
-v0.4.4-live-h5-test + twl-h5-v2.0-live-scan trigger after chunk repair #2
+v0.4.5-h5-refined + twl-h5-v2.1-refined-live-scan trigger
