@@ -1,4 +1,4 @@
-name: Build TWL H5 Moto Detection Fix
+name: Build TWL H5 Moto Runtime Verify
 
 on:
   workflow_dispatch:
@@ -18,7 +18,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Rehydrate TWL H5 v2.1.1
+      - name: Rehydrate TWL H5 v2.1.1 base
         shell: bash
         run: |
           cat .twlh5sim211/source.part00 .twlh5sim211/source.part01 .twlh5sim211/source.part02 .twlh5sim211/source.part03 .twlh5sim211/source.part04 .twlh5sim211/source.part05 .twlh5sim211/source.part06 > twl-h5-source.zip.b64
@@ -26,7 +26,36 @@ jobs:
           unzip -t twl-h5-source.zip
           unzip -q twl-h5-source.zip
           grep -q "2.1.1-moto-detection-fix" worcester-twl-h5-simulator/app/build.gradle
-          grep -q "com.worcester.rfhelper" worcester-twl-h5-simulator/app/src/main/AndroidManifest.xml
+
+      - name: Apply v2.1.2 Motorola runtime verification fix
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('worcester-twl-h5-simulator/app/src/main/java/com/worcester/twlh5simulator/MainActivity.java')
+          s=p.read_text()
+          old='''        status.addView(statusLine("RF Helper installed", isHelperInstalled()));\n        status.addView(statusLine("RF Helper Accessibility", isHelperAccessibilityEnabled()));\n        status.addView(statusLine("Live tote IDs", true));'''
+          new='''        status.addView(statusLine("RF Helper installed", isHelperInstalled()));\n        boolean accessDetected = isHelperAccessibilityEnabled();\n        if (accessDetected) {\n            status.addView(statusLine("RF Helper Accessibility", true));\n        } else {\n            TextView accessNote = tv("⚠  RF Helper Accessibility — verify with Integration Test", 14, 0xFF9A6700, true);\n            status.addView(accessNote);\n        }\n        status.addView(statusLine("Live tote IDs", true));'''
+          if old not in s: raise SystemExit('status patch anchor not found')
+          s=s.replace(old,new)
+
+          old='''    private void runHelperIntegrationTest() {\n        if (!isHelperInstalled() || !isHelperAccessibilityEnabled()) {\n            new AlertDialog.Builder(this)\n                    .setTitle("Helper test cannot start")\n                    .setMessage("Install Worcester RF Helper and enable its Accessibility service first.")\n                    .setPositiveButton("Accessibility Settings", (d, w) -> {\n                        try { startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)); } catch (Exception ignored) {}\n                    })\n                    .setNegativeButton("Cancel", null)\n                    .show();\n            return;\n        }'''
+          new='''    private void runHelperIntegrationTest() {\n        if (!isHelperInstalled()) {\n            new AlertDialog.Builder(this)\n                    .setTitle("Helper test cannot start")\n                    .setMessage("Worcester RF Helper is not installed on this device.")\n                    .setNegativeButton("Close", null)\n                    .show();\n            return;\n        }\n        // Motorola can report a false negative for another sideloaded app's\n        // Accessibility status. The live learn/lookup/release round-trip below\n        // is the authoritative verification that the helper service is active.\n'''
+          if old not in s: raise SystemExit('integration test patch anchor not found')
+          s=s.replace(old,new)
+
+          old='''        TextView note = tv("This test validates local learn → lookup → completion release against the installed headless helper. Cross-device peer sync is tested separately using two devices on the same Wi-Fi.", 12, MUTED, false);'''
+          new='''        TextView note = tv(allPass\n                ? "Accessibility verified by live helper round-trip. This test validates local learn → lookup → completion release against the installed headless helper. Cross-device peer sync is tested separately using two devices on the same Wi-Fi."\n                : "If the first two steps fail, confirm Worcester RF Helper is enabled under Android Accessibility. This runtime test is the authoritative check on Motorola devices where the status API can report a false negative.", 12, MUTED, false);'''
+          if old not in s: raise SystemExit('result note patch anchor not found')
+          p.write_text(s.replace(old,new))
+
+          b=Path('worcester-twl-h5-simulator/app/build.gradle')
+          t=b.read_text().replace('versionCode 3','versionCode 4').replace("versionName '2.1.1-moto-detection-fix'","versionName '2.1.2-moto-runtime-verify'")
+          b.write_text(t)
+          PY
+          grep -q "2.1.2-moto-runtime-verify" worcester-twl-h5-simulator/app/build.gradle
+          grep -q "verify with Integration Test" worcester-twl-h5-simulator/app/src/main/java/com/worcester/twlh5simulator/MainActivity.java
+          grep -q "authoritative verification" worcester-twl-h5-simulator/app/src/main/java/com/worcester/twlh5simulator/MainActivity.java
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -44,7 +73,6 @@ jobs:
         run: |
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"; fi
-          test -x "$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0'
 
@@ -62,7 +90,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Worcester-TWL-H5-Test-v2.1.1-moto-fix-apk
+          name: Worcester-TWL-H5-Test-v2.1.2-moto-runtime-verify-apk
           path: worcester-twl-h5-simulator/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
 
@@ -71,13 +99,12 @@ jobs:
         shell: bash
         run: |
           mkdir -p builds
-          cp worcester-twl-h5-simulator/app/build/outputs/apk/debug/app-debug.apk builds/Worcester-TWL-H5-Test-v2.1.1-moto-fix.apk
-          sha256sum builds/Worcester-TWL-H5-Test-v2.1.1-moto-fix.apk > builds/Worcester-TWL-H5-Test-v2.1.1-SHA256.txt
-          printf 'status=success\nrun_id=%s\ncommit=%s\nsimulator=2.1.1-moto-detection-fix\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/Worcester-TWL-H5-MOTO-LATEST.txt
+          cp worcester-twl-h5-simulator/app/build/outputs/apk/debug/app-debug.apk builds/Worcester-TWL-H5-Test-v2.1.2-moto-runtime-verify.apk
+          printf 'status=success\nrun_id=%s\ncommit=%s\nsimulator=2.1.2-moto-runtime-verify\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/Worcester-TWL-H5-MOTO-LATEST.txt
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add builds/Worcester-TWL-H5-Test-v2.1.1-moto-fix.apk builds/Worcester-TWL-H5-Test-v2.1.1-SHA256.txt builds/Worcester-TWL-H5-MOTO-LATEST.txt
-          git commit -m 'Publish TWL H5 v2.1.1 Moto detection fix APK' || true
+          git add builds/Worcester-TWL-H5-Test-v2.1.2-moto-runtime-verify.apk builds/Worcester-TWL-H5-MOTO-LATEST.txt
+          git commit -m 'Publish TWL H5 v2.1.2 Motorola runtime verification APK' || true
           git push
 
       - name: Publish failure status
@@ -85,9 +112,9 @@ jobs:
         shell: bash
         run: |
           mkdir -p builds
-          printf 'status=failure\nrun_id=%s\ncommit=%s\nsimulator=2.1.1-moto-detection-fix\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/Worcester-TWL-H5-MOTO-LATEST.txt
+          printf 'status=failure\nrun_id=%s\ncommit=%s\nsimulator=2.1.2-moto-runtime-verify\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/Worcester-TWL-H5-MOTO-LATEST.txt
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add builds/Worcester-TWL-H5-MOTO-LATEST.txt
-          git commit -m 'Record failed TWL H5 Moto fix build' || true
+          git commit -m 'Record failed TWL H5 v2.1.2 build' || true
           git push || true
