@@ -1,11 +1,11 @@
-name: Build Worcester Boss Demo
+name: Build Worcester Boss Demo v2.3 Provider
 
 on:
   workflow_dispatch:
   push:
     branches: [ main ]
     paths:
-      - '.bossdemo22c/build.trigger'
+      - '.bossdemo23/build.trigger'
       - '.github/workflows/build-worcester-boss-demo.yml'
 
 permissions:
@@ -18,7 +18,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Rehydrate RF Helper v0.4.7
+      - name: Rehydrate RF Helper v0.4.7 base
         shell: bash
         run: |
           mkdir -p helper-build
@@ -27,10 +27,118 @@ jobs:
           unzip -t helper-source.zip
           unzip -q helper-source.zip -d helper-build
           grep -q "0.4.7-boss-demo-bridge" helper-build/app/build.gradle
-          grep -q "DemoBridgeReceiver" helper-build/app/src/main/AndroidManifest.xml
-          grep -q "DEMO_BRIDGE" helper-build/app/src/main/java/com/worcester/rfhelper/DemoBridgeReceiver.java
 
-      - name: Rehydrate TWL H5 v2.2
+      - name: Patch RF Helper v0.4.8 provider bridge
+        shell: bash
+        run: |
+          cat > helper-build/app/src/main/java/com/worcester/rfhelper/DemoBridgeProvider.java <<'JAVA'
+          package com.worcester.rfhelper;
+
+          import android.content.ContentProvider;
+          import android.content.ContentValues;
+          import android.content.Context;
+          import android.database.Cursor;
+          import android.net.Uri;
+          import android.os.Bundle;
+          import java.util.Collections;
+          import java.util.List;
+          import java.util.Locale;
+
+          public class DemoBridgeProvider extends ContentProvider {
+              public static final String AUTHORITY = "com.worcester.rfhelper.demo";
+
+              @Override public boolean onCreate() {
+                  Context c = getContext();
+                  if (c != null) {
+                      MappingStore.init(c);
+                      PeerSyncManager.get(c).start();
+                  }
+                  return true;
+              }
+
+              @Override public Bundle call(String method, String arg, Bundle extras) {
+                  Bundle out = new Bundle();
+                  String op = clean(method);
+                  out.putString("op", op);
+                  try {
+                      Context c = getContext();
+                      if (c == null) throw new IllegalStateException("no context");
+                      MappingStore.init(c);
+                      PeerSyncManager peer = PeerSyncManager.get(c);
+                      peer.start();
+                      String tote = clean(extras == null ? null : extras.getString("tote"));
+                      String order = clean(extras == null ? null : extras.getString("order"));
+
+                      if ("PING".equals(op)) {
+                          out.putBoolean("ok", true);
+                          out.putString("status", "READY");
+                      } else if ("BIND".equals(op)) {
+                          long ts = System.currentTimeMillis();
+                          String canon = OrderNormalizer.normalize(order);
+                          boolean ok = canon != null && MappingStore.bindIfAvailable(tote, canon, ts, peer.deviceId());
+                          if (ok) peer.broadcastUpsert(tote, canon, ts);
+                          MappingStore.Mapping m = MappingStore.get(tote);
+                          boolean activeMatch = m != null && m.active && canon != null && canon.equals(m.order);
+                          out.putBoolean("ok", ok || activeMatch);
+                          if (m != null) {
+                              out.putString("order", m.order);
+                              out.putBoolean("active", m.active);
+                          }
+                          out.putString("status", out.getBoolean("ok") ? "BOUND" : "CONFLICT_OR_INVALID");
+                      } else if ("LOOKUP".equals(op)) {
+                          MappingStore.Mapping m = MappingStore.get(tote);
+                          boolean found = m != null && m.active;
+                          out.putBoolean("ok", found);
+                          out.putBoolean("found", found);
+                          if (found) out.putString("order", m.order);
+                          if (!found) peer.requestSnapshot();
+                          out.putString("status", found ? "FOUND" : "MISS");
+                      } else if ("RELEASE".equals(op)) {
+                          String canon = OrderNormalizer.normalize(order);
+                          long ts = System.currentTimeMillis();
+                          List<MappingStore.Mapping> released = canon == null ? Collections.emptyList() : MappingStore.releaseOrder(canon, ts, peer.deviceId());
+                          if (canon != null) peer.broadcastRelease(canon, ts);
+                          out.putBoolean("ok", canon != null);
+                          out.putInt("released", released.size());
+                          out.putString("order", canon);
+                          out.putString("status", "RELEASED");
+                      } else {
+                          out.putBoolean("ok", false);
+                          out.putString("status", "UNKNOWN_OP");
+                      }
+                  } catch (Throwable t) {
+                      out.putBoolean("ok", false);
+                      out.putString("status", "ERROR:" + t.getClass().getSimpleName());
+                  }
+                  return out;
+              }
+
+              private static String clean(String s) { return s == null ? "" : s.trim().toUpperCase(Locale.US); }
+              @Override public String getType(Uri uri) { return null; }
+              @Override public Cursor query(Uri uri, String[] projection, String selection, String[] selectionArgs, String sortOrder) { return null; }
+              @Override public Uri insert(Uri uri, ContentValues values) { return null; }
+              @Override public int delete(Uri uri, String selection, String[] selectionArgs) { return 0; }
+              @Override public int update(Uri uri, ContentValues values, String selection, String[] selectionArgs) { return 0; }
+          }
+          JAVA
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('helper-build/app/src/main/AndroidManifest.xml')
+          s=p.read_text()
+          anchor='''        <receiver\n            android:name=".DemoBridgeReceiver"'''
+          provider='''        <provider\n            android:name=".DemoBridgeProvider"\n            android:authorities="com.worcester.rfhelper.demo"\n            android:enabled="true"\n            android:exported="true" />\n\n'''
+          if 'android:name=".DemoBridgeProvider"' not in s:
+              if anchor not in s: raise SystemExit('helper manifest anchor missing')
+              s=s.replace(anchor,provider+anchor)
+          p.write_text(s)
+          p=Path('helper-build/app/build.gradle')
+          s=p.read_text().replace('versionCode 11','versionCode 12').replace("versionName '0.4.7-boss-demo-bridge'","versionName '0.4.8-boss-demo-provider'")
+          p.write_text(s)
+          PY
+          grep -q "DemoBridgeProvider" helper-build/app/src/main/AndroidManifest.xml
+          grep -q "0.4.8-boss-demo-provider" helper-build/app/build.gradle
+
+      - name: Rehydrate TWL H5 v2.2 base
         shell: bash
         run: |
           mkdir -p sim-build
@@ -39,29 +147,53 @@ jobs:
           unzip -t sim-source.zip
           unzip -q sim-source.zip -d sim-build
           grep -q "2.2-boss-demo-direct-bridge" sim-build/worcester-twl-h5-simulator/app/build.gradle
-          grep -q "DEMO_BRIDGE_ACTION" sim-build/worcester-twl-h5-simulator/app/src/main/java/com/worcester/twlh5simulator/MainActivity.java
-          grep -q "BOSS DEMO FLOW PASSED" sim-build/worcester-twl-h5-simulator/app/src/main/java/com/worcester/twlh5simulator/MainActivity.java
 
-      - name: Cross-project boss demo contract checks
+      - name: Patch TWL H5 v2.3 provider bridge
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          helper=Path('helper-build/app/src/main/java/com/worcester/rfhelper/DemoBridgeReceiver.java').read_text()
+          p=Path('sim-build/worcester-twl-h5-simulator/app/src/main/java/com/worcester/twlh5simulator/MainActivity.java')
+          s=p.read_text()
+          if 'import android.net.Uri;' not in s:
+              s=s.replace('import android.graphics.drawable.GradientDrawable;','import android.graphics.drawable.GradientDrawable;\nimport android.net.Uri;')
+          s=s.replace('private static final String DEMO_BRIDGE_ACTION = "com.worcester.rfhelper.DEMO_BRIDGE";', 'private static final String DEMO_BRIDGE_ACTION = "com.worcester.rfhelper.DEMO_BRIDGE";\n    private static final Uri DEMO_PROVIDER_URI = Uri.parse("content://com.worcester.rfhelper.demo");')
+          old='''    private void demoRequest(String op, String tote, String order, DemoCallback cb) {\n        Intent i = new Intent(DEMO_BRIDGE_ACTION);\n        i.setPackage(HELPER_PACKAGE);\n        i.addCategory(Intent.CATEGORY_DEFAULT);\n        i.putExtra("op", op);\n        if (tote != null) i.putExtra("tote", tote);\n        if (order != null) i.putExtra("order", order);\n        BroadcastReceiver result = new BroadcastReceiver() {\n            @Override public void onReceive(Context context, Intent intent) {\n                Bundle b = getResultExtras(false);\n                if (b == null) b = new Bundle();\n                cb.done(b);\n            }\n        };\n        try {\n            sendOrderedBroadcast(i, null, result, null, Activity.RESULT_OK, null, null);\n        } catch (Throwable t) {\n            Bundle b = new Bundle();\n            b.putBoolean("ok", false);\n            b.putString("status", "BRIDGE_ERROR");\n            cb.done(b);\n        }\n    }'''
+          new='''    private void demoRequest(String op, String tote, String order, DemoCallback cb) {\n        try {\n            Bundle in = new Bundle();\n            if (tote != null) in.putString("tote", tote);\n            if (order != null) in.putString("order", order);\n            Bundle out = getContentResolver().call(DEMO_PROVIDER_URI, op, null, in);\n            if (out == null) {\n                out = new Bundle();\n                out.putBoolean("ok", false);\n                out.putString("status", "NO_PROVIDER_REPLY");\n            }\n            cb.done(out);\n        } catch (Throwable t) {\n            Bundle b = new Bundle();\n            b.putBoolean("ok", false);\n            b.putString("status", "PROVIDER_ERROR:" + t.getClass().getSimpleName());\n            cb.done(b);\n        }\n    }'''
+          if old not in s: raise SystemExit('sim demoRequest anchor missing')
+          s=s.replace(old,new)
+          s=s.replace('Testing direct boss-demo bridge…','Testing direct boss-demo provider bridge…')
+          s=s.replace('PASS" : "FAIL") + " — Direct helper bridge responds"','PASS" : "FAIL") + " — Direct helper provider responds"')
+          s=s.replace('Confirm the updated RF Helper is installed. Accessibility is not required for this boss-demo test.','Confirm RF Helper v0.4.8 is installed. Accessibility is not required for this boss-demo test.')
+          p.write_text(s)
+          p=Path('sim-build/worcester-twl-h5-simulator/app/build.gradle')
+          s=p.read_text().replace('versionCode 6','versionCode 7').replace("versionName '2.2-boss-demo-direct-bridge'","versionName '2.3-boss-demo-provider-bridge'")
+          p.write_text(s)
+          PY
+          grep -q "DEMO_PROVIDER_URI" sim-build/worcester-twl-h5-simulator/app/src/main/java/com/worcester/twlh5simulator/MainActivity.java
+          grep -q "getContentResolver().call" sim-build/worcester-twl-h5-simulator/app/src/main/java/com/worcester/twlh5simulator/MainActivity.java
+          grep -q "2.3-boss-demo-provider-bridge" sim-build/worcester-twl-h5-simulator/app/build.gradle
+
+      - name: Cross-project provider contract checks
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          helper=Path('helper-build/app/src/main/java/com/worcester/rfhelper/DemoBridgeProvider.java').read_text()
           sim=Path('sim-build/worcester-twl-h5-simulator/app/src/main/java/com/worcester/twlh5simulator/MainActivity.java').read_text()
           manifest=Path('helper-build/app/src/main/AndroidManifest.xml').read_text()
           for token in ['PING','BIND','LOOKUP','RELEASE']:
               assert f'"{token}"' in helper
               assert f'"{token}"' in sim
-          assert 'com.worcester.rfhelper.DEMO_BRIDGE' in helper
-          assert 'com.worcester.rfhelper.DEMO_BRIDGE' in sim
-          assert 'DemoBridgeReceiver' in manifest and 'android:exported="true"' in manifest
+          assert 'com.worcester.rfhelper.demo' in helper and 'com.worcester.rfhelper.demo' in sim
+          assert 'DemoBridgeProvider' in manifest and 'android:exported="true"' in manifest
+          assert 'getContentResolver().call' in sim
           assert 'installBossDemoToteEnter' in sim
           assert 'installBossDemoOrderEnter' in sim
           assert 'demoReleaseOrder(p.order)' in sim
           for wave in ['998991','998992','998993','998994','998995']:
               assert wave in sim
-          print('Boss demo direct-bridge contract: PASS')
+          print('Boss demo provider contract: PASS')
           PY
 
       - name: Set up Java 17
@@ -105,14 +237,14 @@ jobs:
       - name: Upload RF Helper
         uses: actions/upload-artifact@v4
         with:
-          name: WorcesterRFHelper-v0.4.7-boss-demo-bridge-apk
+          name: WorcesterRFHelper-v0.4.8-boss-demo-provider-apk
           path: helper-build/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
 
       - name: Upload TWL H5 Boss Demo
         uses: actions/upload-artifact@v4
         with:
-          name: Worcester-TWL-H5-Test-v2.2-boss-demo-apk
+          name: Worcester-TWL-H5-Test-v2.3-boss-demo-provider-apk
           path: sim-build/worcester-twl-h5-simulator/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
 
@@ -121,15 +253,15 @@ jobs:
         shell: bash
         run: |
           mkdir -p builds
-          cp helper-build/app/build/outputs/apk/debug/app-debug.apk builds/WorcesterRFHelper-v0.4.7-boss-demo-bridge.apk
-          cp sim-build/worcester-twl-h5-simulator/app/build/outputs/apk/debug/app-debug.apk builds/Worcester-TWL-H5-Test-v2.2-boss-demo.apk
-          sha256sum builds/WorcesterRFHelper-v0.4.7-boss-demo-bridge.apk > builds/WorcesterRFHelper-v0.4.7-SHA256.txt
-          sha256sum builds/Worcester-TWL-H5-Test-v2.2-boss-demo.apk > builds/Worcester-TWL-H5-v2.2-SHA256.txt
-          printf 'status=success\nrun_id=%s\ncommit=%s\nhelper=0.4.7-boss-demo-bridge\nsimulator=2.2-boss-demo-direct-bridge\ncontracts=pass\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/Worcester-BOSS-DEMO-LATEST.txt
+          cp helper-build/app/build/outputs/apk/debug/app-debug.apk builds/WorcesterRFHelper-v0.4.8-boss-demo-provider.apk
+          cp sim-build/worcester-twl-h5-simulator/app/build/outputs/apk/debug/app-debug.apk builds/Worcester-TWL-H5-Test-v2.3-boss-demo-provider.apk
+          sha256sum builds/WorcesterRFHelper-v0.4.8-boss-demo-provider.apk > builds/WorcesterRFHelper-v0.4.8-SHA256.txt
+          sha256sum builds/Worcester-TWL-H5-Test-v2.3-boss-demo-provider.apk > builds/Worcester-TWL-H5-v2.3-SHA256.txt
+          printf 'status=success\nrun_id=%s\ncommit=%s\nhelper=0.4.8-boss-demo-provider\nsimulator=2.3-boss-demo-provider-bridge\ncontracts=pass\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/Worcester-BOSS-DEMO-LATEST.txt
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add builds/WorcesterRFHelper-v0.4.7-boss-demo-bridge.apk builds/Worcester-TWL-H5-Test-v2.2-boss-demo.apk builds/WorcesterRFHelper-v0.4.7-SHA256.txt builds/Worcester-TWL-H5-v2.2-SHA256.txt builds/Worcester-BOSS-DEMO-LATEST.txt
-          git commit -m 'Publish Worcester boss demo APKs' || true
+          git add builds/WorcesterRFHelper-v0.4.8-boss-demo-provider.apk builds/Worcester-TWL-H5-Test-v2.3-boss-demo-provider.apk builds/WorcesterRFHelper-v0.4.8-SHA256.txt builds/Worcester-TWL-H5-v2.3-SHA256.txt builds/Worcester-BOSS-DEMO-LATEST.txt
+          git commit -m 'Publish Worcester boss demo provider APKs' || true
           git push
 
       - name: Publish failure status
@@ -137,9 +269,9 @@ jobs:
         shell: bash
         run: |
           mkdir -p builds
-          printf 'status=failure\nrun_id=%s\ncommit=%s\nhelper=0.4.7-boss-demo-bridge\nsimulator=2.2-boss-demo-direct-bridge\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/Worcester-BOSS-DEMO-LATEST.txt
+          printf 'status=failure\nrun_id=%s\ncommit=%s\nhelper=0.4.8-boss-demo-provider\nsimulator=2.3-boss-demo-provider-bridge\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/Worcester-BOSS-DEMO-LATEST.txt
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add builds/Worcester-BOSS-DEMO-LATEST.txt
-          git commit -m 'Record failed Worcester boss demo build' || true
+          git commit -m 'Record failed Worcester boss demo provider build' || true
           git push || true
