@@ -21,7 +21,7 @@ jobs:
       - name: Rehydrate TWL H5 v2.1.1
         shell: bash
         run: |
-          cat .twlh5sim211/source.part00 > twl-h5-source.zip.b64
+          cat .twlh5sim211/source.part00 .twlh5sim211/source.part01 .twlh5sim211/source.part02 .twlh5sim211/source.part03 .twlh5sim211/source.part04 .twlh5sim211/source.part05 .twlh5sim211/source.part06 > twl-h5-source.zip.b64
           base64 -d twl-h5-source.zip.b64 > twl-h5-source.zip
           unzip -t twl-h5-source.zip
           unzip -q twl-h5-source.zip
