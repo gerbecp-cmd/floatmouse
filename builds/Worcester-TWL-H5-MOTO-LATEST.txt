@@ -1,4 +1,4 @@
-status=failure
-run_id=32923852997
-commit=85f931ed5d4363fd31eeec71aa904232550fa2f8
-simulator=2.1.1-moto-fix
+status=success
+run_id=32923926375
+commit=431cc505d04baf2f3cc2e367c5f32513bde95b59
+simulator=2.1.1-moto-detection-fix
