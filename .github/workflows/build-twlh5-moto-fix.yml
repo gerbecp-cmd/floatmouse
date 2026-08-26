@@ -25,7 +25,7 @@ jobs:
           base64 -d twl-h5-source.zip.b64 > twl-h5-source.zip
           unzip -t twl-h5-source.zip
           unzip -q twl-h5-source.zip
-          grep -q "2.1.1-moto-fix" worcester-twl-h5-simulator/app/build.gradle
+          grep -q "2.1.1-moto-detection-fix" worcester-twl-h5-simulator/app/build.gradle
           grep -q "com.worcester.rfhelper" worcester-twl-h5-simulator/app/src/main/AndroidManifest.xml
 
       - name: Set up Java 17
@@ -73,7 +73,7 @@ jobs:
           mkdir -p builds
           cp worcester-twl-h5-simulator/app/build/outputs/apk/debug/app-debug.apk builds/Worcester-TWL-H5-Test-v2.1.1-moto-fix.apk
           sha256sum builds/Worcester-TWL-H5-Test-v2.1.1-moto-fix.apk > builds/Worcester-TWL-H5-Test-v2.1.1-SHA256.txt
-          printf 'status=success\nrun_id=%s\ncommit=%s\nsimulator=2.1.1-moto-fix\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/Worcester-TWL-H5-MOTO-LATEST.txt
+          printf 'status=success\nrun_id=%s\ncommit=%s\nsimulator=2.1.1-moto-detection-fix\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/Worcester-TWL-H5-MOTO-LATEST.txt
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add builds/Worcester-TWL-H5-Test-v2.1.1-moto-fix.apk builds/Worcester-TWL-H5-Test-v2.1.1-SHA256.txt builds/Worcester-TWL-H5-MOTO-LATEST.txt
@@ -85,7 +85,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p builds
-          printf 'status=failure\nrun_id=%s\ncommit=%s\nsimulator=2.1.1-moto-fix\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/Worcester-TWL-H5-MOTO-LATEST.txt
+          printf 'status=failure\nrun_id=%s\ncommit=%s\nsimulator=2.1.1-moto-detection-fix\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/Worcester-TWL-H5-MOTO-LATEST.txt
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add builds/Worcester-TWL-H5-MOTO-LATEST.txt
