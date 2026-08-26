@@ -1,0 +1,145 @@
+name: Build Worcester Boss Demo
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '.bossdemo22/build.trigger'
+      - '.github/workflows/build-worcester-boss-demo.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Rehydrate RF Helper v0.4.7
+        shell: bash
+        run: |
+          mkdir -p helper-build
+          cat .bossdemo047/helper.part00 > helper-source.zip.b64
+          base64 -d helper-source.zip.b64 > helper-source.zip
+          unzip -t helper-source.zip
+          unzip -q helper-source.zip -d helper-build
+          grep -q "0.4.7-boss-demo-bridge" helper-build/app/build.gradle
+          grep -q "DemoBridgeReceiver" helper-build/app/src/main/AndroidManifest.xml
+          grep -q "DEMO_BRIDGE" helper-build/app/src/main/java/com/worcester/rfhelper/DemoBridgeReceiver.java
+
+      - name: Rehydrate TWL H5 v2.2
+        shell: bash
+        run: |
+          mkdir -p sim-build
+          cat .bossdemo22/sim.part00 > sim-source.zip.b64
+          base64 -d sim-source.zip.b64 > sim-source.zip
+          unzip -t sim-source.zip
+          unzip -q sim-source.zip -d sim-build
+          grep -q "2.2-boss-demo-direct-bridge" sim-build/worcester-twl-h5-simulator/app/build.gradle
+          grep -q "DEMO_BRIDGE_ACTION" sim-build/worcester-twl-h5-simulator/app/src/main/java/com/worcester/twlh5simulator/MainActivity.java
+          grep -q "BOSS DEMO FLOW PASSED" sim-build/worcester-twl-h5-simulator/app/src/main/java/com/worcester/twlh5simulator/MainActivity.java
+
+      - name: Cross-project boss demo contract checks
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          helper=Path('helper-build/app/src/main/java/com/worcester/rfhelper/DemoBridgeReceiver.java').read_text()
+          sim=Path('sim-build/worcester-twl-h5-simulator/app/src/main/java/com/worcester/twlh5simulator/MainActivity.java').read_text()
+          manifest=Path('helper-build/app/src/main/AndroidManifest.xml').read_text()
+          for token in ['PING','BIND','LOOKUP','RELEASE']:
+              assert f'"{token}"' in helper
+              assert f'"{token}"' in sim
+          assert 'com.worcester.rfhelper.DEMO_BRIDGE' in helper
+          assert 'com.worcester.rfhelper.DEMO_BRIDGE' in sim
+          assert 'DemoBridgeReceiver' in manifest and 'android:exported="true"' in manifest
+          assert 'installBossDemoToteEnter' in sim
+          assert 'installBossDemoOrderEnter' in sim
+          assert 'demoReleaseOrder(p.order)' in sim
+          for wave in ['998991','998992','998993','998994','998995']:
+              assert wave in sim
+          print('Boss demo direct-bridge contract: PASS')
+          PY
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Install Android SDK 35
+        shell: bash
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"; fi
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0'
+
+      - name: Test and build RF Helper
+        shell: bash
+        working-directory: helper-build
+        run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
+
+      - name: Build TWL H5 Boss Demo
+        shell: bash
+        working-directory: sim-build/worcester-twl-h5-simulator
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Verify APKs
+        shell: bash
+        run: |
+          test -s helper-build/app/build/outputs/apk/debug/app-debug.apk
+          test -s sim-build/worcester-twl-h5-simulator/app/build/outputs/apk/debug/app-debug.apk
+          sha256sum helper-build/app/build/outputs/apk/debug/app-debug.apk
+          sha256sum sim-build/worcester-twl-h5-simulator/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload RF Helper
+        uses: actions/upload-artifact@v4
+        with:
+          name: WorcesterRFHelper-v0.4.7-boss-demo-bridge-apk
+          path: helper-build/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+
+      - name: Upload TWL H5 Boss Demo
+        uses: actions/upload-artifact@v4
+        with:
+          name: Worcester-TWL-H5-Test-v2.2-boss-demo-apk
+          path: sim-build/worcester-twl-h5-simulator/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+
+      - name: Publish APKs
+        if: success()
+        shell: bash
+        run: |
+          mkdir -p builds
+          cp helper-build/app/build/outputs/apk/debug/app-debug.apk builds/WorcesterRFHelper-v0.4.7-boss-demo-bridge.apk
+          cp sim-build/worcester-twl-h5-simulator/app/build/outputs/apk/debug/app-debug.apk builds/Worcester-TWL-H5-Test-v2.2-boss-demo.apk
+          sha256sum builds/WorcesterRFHelper-v0.4.7-boss-demo-bridge.apk > builds/WorcesterRFHelper-v0.4.7-SHA256.txt
+          sha256sum builds/Worcester-TWL-H5-Test-v2.2-boss-demo.apk > builds/Worcester-TWL-H5-v2.2-SHA256.txt
+          printf 'status=success\nrun_id=%s\ncommit=%s\nhelper=0.4.7-boss-demo-bridge\nsimulator=2.2-boss-demo-direct-bridge\ncontracts=pass\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/Worcester-BOSS-DEMO-LATEST.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add builds/WorcesterRFHelper-v0.4.7-boss-demo-bridge.apk builds/Worcester-TWL-H5-Test-v2.2-boss-demo.apk builds/WorcesterRFHelper-v0.4.7-SHA256.txt builds/Worcester-TWL-H5-v2.2-SHA256.txt builds/Worcester-BOSS-DEMO-LATEST.txt
+          git commit -m 'Publish Worcester boss demo APKs' || true
+          git push
+
+      - name: Publish failure status
+        if: failure()
+        shell: bash
+        run: |
+          mkdir -p builds
+          printf 'status=failure\nrun_id=%s\ncommit=%s\nhelper=0.4.7-boss-demo-bridge\nsimulator=2.2-boss-demo-direct-bridge\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/Worcester-BOSS-DEMO-LATEST.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add builds/Worcester-BOSS-DEMO-LATEST.txt
+          git commit -m 'Record failed Worcester boss demo build' || true
+          git push || true
