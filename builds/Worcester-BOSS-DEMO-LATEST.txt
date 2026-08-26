@@ -1,5 +1,6 @@
-status=failure
-run_id=32929544187
-commit=bb0d3532e0099bd06bd9045d1b162318bc94de8b
+status=success
+run_id=32930052595
+commit=bf5ef990d61a37aeb8854a09df8e75dac80241a6
 helper=0.4.7-boss-demo-bridge
 simulator=2.2-boss-demo-direct-bridge
+contracts=pass

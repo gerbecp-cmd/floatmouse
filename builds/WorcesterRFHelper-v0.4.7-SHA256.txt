@@ -1,0 +1,1 @@
+9cb3cf68ba8123aebf1a1d3d08db471623ceb05dd02c01e821b58ba75b734fb7  builds/WorcesterRFHelper-v0.4.7-boss-demo-bridge.apk
