@@ -1,0 +1,5 @@
+status=failure
+run_id=32929544187
+commit=bb0d3532e0099bd06bd9045d1b162318bc94de8b
+helper=0.4.7-boss-demo-bridge
+simulator=2.2-boss-demo-direct-bridge
