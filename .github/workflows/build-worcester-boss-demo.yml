@@ -5,7 +5,7 @@ on:
   push:
     branches: [ main ]
     paths:
-      - '.bossdemo22/build.trigger'
+      - '.bossdemo22c/build.trigger'
       - '.github/workflows/build-worcester-boss-demo.yml'
 
 permissions:
@@ -22,7 +22,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p helper-build
-          cat .bossdemo047/helper.part00 > helper-source.zip.b64
+          cat .bossdemo047c/helper.part00 .bossdemo047c/helper.part01 .bossdemo047c/helper.part02 .bossdemo047c/helper.part03 .bossdemo047c/helper.part04 .bossdemo047c/helper.part05 > helper-source.zip.b64
           base64 -d helper-source.zip.b64 > helper-source.zip
           unzip -t helper-source.zip
           unzip -q helper-source.zip -d helper-build
@@ -34,7 +34,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p sim-build
-          cat .bossdemo22/sim.part00 > sim-source.zip.b64
+          cat .bossdemo22c/sim.part00 .bossdemo22c/sim.part01 .bossdemo22c/sim.part02 .bossdemo22c/sim.part03 > sim-source.zip.b64
           base64 -d sim-source.zip.b64 > sim-source.zip
           unzip -t sim-source.zip
           unzip -q sim-source.zip -d sim-build
