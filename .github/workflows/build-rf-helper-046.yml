@@ -1,0 +1,146 @@
+name: Build Worcester RF Helper v0.4.6 Order Lookup Fix
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '.rfhelper046/build.trigger'
+      - '.github/workflows/build-rf-helper-046.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Rehydrate RF Helper v0.4.4 base
+        shell: bash
+        run: |
+          cat .rfhelper44/source.part00 .rfhelper44/source.part01 .rfhelper44/source.part02 .rfhelper44/source.part03 > rf-helper-source.zip.b64
+          base64 -d rf-helper-source.zip.b64 > rf-helper-source.zip
+          unzip -t rf-helper-source.zip
+          unzip -q rf-helper-source.zip
+          grep -q "0.4.4-live-h5-test" worcester-rf-helper/app/build.gradle
+
+      - name: Apply v0.4.6 fixes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          base=Path('worcester-rf-helper')
+
+          # Normalize TWL display order 0003410563-00 -> O003410563.
+          p=base/'app/src/main/java/com/worcester/rfhelper/OrderNormalizer.java'
+          s=p.read_text()
+          old='''        if (s.isEmpty()) return null;\n        if (s.startsWith("O")) s = s.substring(1);'''
+          new='''        if (s.isEmpty()) return null;\n        if (s.matches(".*-\\\\d{2}$")) s = s.substring(0, s.lastIndexOf('-'));\n        if (s.startsWith("O")) s = s.substring(1);'''
+          if old not in s: raise SystemExit('OrderNormalizer anchor not found')
+          p.write_text(s.replace(old,new))
+
+          # Focused field classification. Explicit Pick By Order wins even when the hint says scan tote.
+          p=base/'app/src/main/java/com/worcester/rfhelper/ScreenParser.java'
+          s=p.read_text()
+          old='''        boolean focusOrder=focusText.contains("order");\n        boolean focusTote=focusText.contains("tote") || focusText.contains("container") || focusText.contains("carton");\n        boolean orderEntry,toteEntry;\n        if(focusOrder || focusTote){\n            orderEntry=focusOrder && !focusTote;\n            toteEntry=focusTote && !focusOrder;\n        }else{\n            orderEntry=low.contains("pick by order") || low.contains("scan order") || low.contains("enter order");\n            toteEntry=low.contains("scan tote") || low.contains("enter tote") || low.contains("scan container") || low.contains("enter container");\n        }'''
+          new='''        boolean focusOrder=focusText.contains("order");\n        boolean focusTote=focusText.contains("tote") || focusText.contains("container") || focusText.contains("carton");\n        boolean explicitOrder=focusText.contains("pick by order") || focusText.contains("scan order") || focusText.contains("enter order");\n        boolean explicitTote=focusText.contains("pt/tote") || focusText.contains("scan tote") || focusText.contains("enter tote") || focusText.contains("scan container") || focusText.contains("enter container");\n        boolean orderEntry,toteEntry;\n        boolean focusedEditable=focused!=null && focused.isEditable();\n        if(focusedEditable && !focusText.isBlank()){\n            if(explicitOrder){\n                orderEntry=true; toteEntry=false;\n            }else if(explicitTote){\n                orderEntry=false; toteEntry=true;\n            }else{\n                orderEntry=focusOrder && !focusTote;\n                toteEntry=focusTote && !focusOrder;\n            }\n        }else{\n            orderEntry=low.contains("pick by order") || low.contains("scan order") || low.contains("enter order");\n            toteEntry=!orderEntry && (low.contains("scan tote") || low.contains("enter tote") || low.contains("scan container") || low.contains("enter container"));\n        }'''
+          if old not in s: raise SystemExit('ScreenParser anchor not found')
+          p.write_text(s.replace(old,new))
+
+          # Active tote conflict protection.
+          p=base/'app/src/main/java/com/worcester/rfhelper/MappingStore.java'
+          s=p.read_text()
+          anchor='''    public static synchronized boolean upsert(String tote,String order,long ts,String device){\n        return merge(tote,order,ts,true,device);\n    }\n'''
+          addition='''    public static synchronized boolean upsert(String tote,String order,long ts,String device){\n        return merge(tote,order,ts,true,device);\n    }\n\n    public static synchronized boolean bindIfAvailable(String tote,String order,long ts,String device){\n        tote=canonTote(tote);\n        order=OrderNormalizer.normalize(order);\n        if(tote.isEmpty() || order==null)return false;\n        Mapping old=get(tote);\n        if(old!=null && old.active && !old.order.equals(order))return false;\n        return merge(tote,order,ts,true,device);\n    }\n'''
+          if anchor not in s: raise SystemExit('MappingStore anchor not found')
+          p.write_text(s.replace(anchor,addition))
+
+          p=base/'app/src/main/java/com/worcester/rfhelper/TwlAccessibilityService.java'
+          s=p.read_text()
+          old='if(MappingStore.upsert(tote,activeOrder,ts,PeerSyncManager.get(this).deviceId()))PeerSyncManager.get(this).broadcastUpsert(tote,activeOrder,ts);'
+          new='if(MappingStore.bindIfAvailable(tote,activeOrder,ts,PeerSyncManager.get(this).deviceId()))PeerSyncManager.get(this).broadcastUpsert(tote,activeOrder,ts);'
+          if old not in s: raise SystemExit('Accessibility service anchor not found')
+          p.write_text(s.replace(old,new))
+
+          p=base/'app/src/test/java/com/worcester/rfhelper/OrderNormalizerTest.java'
+          s=p.read_text()
+          anchor='    @Test public void junkRejected(){assertNull(OrderNormalizer.normalize("TOTE-27"));}\n'
+          extra='''    @Test public void junkRejected(){assertNull(OrderNormalizer.normalize("TOTE-27"));}\n    @Test public void twlSuffixRemoved(){assertEquals("O003410563",OrderNormalizer.normalize("0003410563-00"));}\n    @Test public void twlCoreNormalizes(){assertEquals("O003410563",OrderNormalizer.normalize("3410563"));}\n'''
+          if anchor not in s: raise SystemExit('test anchor not found')
+          p.write_text(s.replace(anchor,extra))
+
+          p=base/'app/build.gradle'
+          s=p.read_text().replace('versionCode 8','versionCode 10').replace("versionName '0.4.4-live-h5-test'","versionName '0.4.6-order-lookup-fix'")
+          p.write_text(s)
+          PY
+          grep -q "0.4.6-order-lookup-fix" worcester-rf-helper/app/build.gradle
+          grep -q "explicitOrder" worcester-rf-helper/app/src/main/java/com/worcester/rfhelper/ScreenParser.java
+          grep -q "if(explicitOrder)" worcester-rf-helper/app/src/main/java/com/worcester/rfhelper/ScreenParser.java
+          grep -q "bindIfAvailable" worcester-rf-helper/app/src/main/java/com/worcester/rfhelper/MappingStore.java
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Install Android SDK 35
+        shell: bash
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"; fi
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0'
+
+      - name: Test and build RF Helper
+        shell: bash
+        working-directory: worcester-rf-helper
+        run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
+
+      - name: Verify APK
+        shell: bash
+        run: |
+          test -s worcester-rf-helper/app/build/outputs/apk/debug/app-debug.apk
+          sha256sum worcester-rf-helper/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WorcesterRFHelper-v0.4.6-order-lookup-fix-apk
+          path: worcester-rf-helper/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+
+      - name: Publish APK
+        if: success()
+        shell: bash
+        run: |
+          mkdir -p builds
+          cp worcester-rf-helper/app/build/outputs/apk/debug/app-debug.apk builds/WorcesterRFHelper-v0.4.6-order-lookup-fix.apk
+          sha256sum builds/WorcesterRFHelper-v0.4.6-order-lookup-fix.apk > builds/WorcesterRFHelper-v0.4.6-SHA256.txt
+          printf 'status=success\nrun_id=%s\ncommit=%s\nhelper=0.4.6-order-lookup-fix\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/Worcester-RF-HELPER-046-LATEST.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add builds/WorcesterRFHelper-v0.4.6-order-lookup-fix.apk builds/WorcesterRFHelper-v0.4.6-SHA256.txt builds/Worcester-RF-HELPER-046-LATEST.txt
+          git commit -m 'Publish RF Helper v0.4.6 order lookup fix' || true
+          git push
+
+      - name: Publish failure status
+        if: failure()
+        shell: bash
+        run: |
+          mkdir -p builds
+          printf 'status=failure\nrun_id=%s\ncommit=%s\nhelper=0.4.6-order-lookup-fix\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/Worcester-RF-HELPER-046-LATEST.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add builds/Worcester-RF-HELPER-046-LATEST.txt
+          git commit -m 'Record failed RF Helper v0.4.6 build' || true
+          git push || true
