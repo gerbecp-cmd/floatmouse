@@ -1,0 +1,93 @@
+name: Build TWL H5 Moto Detection Fix
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '.twlh5sim211/build.trigger'
+      - '.github/workflows/build-twlh5-moto-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Rehydrate TWL H5 v2.1.1
+        shell: bash
+        run: |
+          cat .twlh5sim211/source.part00 > twl-h5-source.zip.b64
+          base64 -d twl-h5-source.zip.b64 > twl-h5-source.zip
+          unzip -t twl-h5-source.zip
+          unzip -q twl-h5-source.zip
+          grep -q "2.1.1-moto-fix" worcester-twl-h5-simulator/app/build.gradle
+          grep -q "com.worcester.rfhelper" worcester-twl-h5-simulator/app/src/main/AndroidManifest.xml
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Install Android SDK 35
+        shell: bash
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"; fi
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0'
+
+      - name: Build simulator APK
+        shell: bash
+        working-directory: worcester-twl-h5-simulator
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Verify APK
+        shell: bash
+        run: |
+          test -s worcester-twl-h5-simulator/app/build/outputs/apk/debug/app-debug.apk
+          sha256sum worcester-twl-h5-simulator/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Worcester-TWL-H5-Test-v2.1.1-moto-fix-apk
+          path: worcester-twl-h5-simulator/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+
+      - name: Publish APK
+        if: success()
+        shell: bash
+        run: |
+          mkdir -p builds
+          cp worcester-twl-h5-simulator/app/build/outputs/apk/debug/app-debug.apk builds/Worcester-TWL-H5-Test-v2.1.1-moto-fix.apk
+          sha256sum builds/Worcester-TWL-H5-Test-v2.1.1-moto-fix.apk > builds/Worcester-TWL-H5-Test-v2.1.1-SHA256.txt
+          printf 'status=success\nrun_id=%s\ncommit=%s\nsimulator=2.1.1-moto-fix\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/Worcester-TWL-H5-MOTO-LATEST.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add builds/Worcester-TWL-H5-Test-v2.1.1-moto-fix.apk builds/Worcester-TWL-H5-Test-v2.1.1-SHA256.txt builds/Worcester-TWL-H5-MOTO-LATEST.txt
+          git commit -m 'Publish TWL H5 v2.1.1 Moto detection fix APK' || true
+          git push
+
+      - name: Publish failure status
+        if: failure()
+        shell: bash
+        run: |
+          mkdir -p builds
+          printf 'status=failure\nrun_id=%s\ncommit=%s\nsimulator=2.1.1-moto-fix\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > builds/Worcester-TWL-H5-MOTO-LATEST.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add builds/Worcester-TWL-H5-MOTO-LATEST.txt
+          git commit -m 'Record failed TWL H5 Moto fix build' || true
+          git push || true
