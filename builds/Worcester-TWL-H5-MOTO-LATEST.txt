@@ -1,4 +1,4 @@
 status=success
-run_id=32923926375
-commit=431cc505d04baf2f3cc2e367c5f32513bde95b59
-simulator=2.1.1-moto-detection-fix
+run_id=32925417881
+commit=d096010a683686459b5974da22909db4a1501ced
+simulator=2.1.2-moto-runtime-verify
