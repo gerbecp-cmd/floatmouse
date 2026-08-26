@@ -1,6 +1,6 @@
 status=success
-run_id=32930052595
-commit=bf5ef990d61a37aeb8854a09df8e75dac80241a6
-helper=0.4.7-boss-demo-bridge
-simulator=2.2-boss-demo-direct-bridge
+run_id=32965776233
+commit=3481a2f1f0605dc3c718a88b716d75b6c59b41e9
+helper=0.4.8-boss-demo-provider
+simulator=2.3-boss-demo-provider-bridge
 contracts=pass

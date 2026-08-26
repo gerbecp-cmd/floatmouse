@@ -1,0 +1,1 @@
+94297cf3d2f049747d27fa1923842814a27d3ac9b670be31981834fcf45bf62b  builds/WorcesterRFHelper-v0.4.8-boss-demo-provider.apk
